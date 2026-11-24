@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0ea5e9"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <!-- TV Outer Frame -->
+  <rect x="8" y="18" width="112" height="76" rx="10" fill="url(#bg)" stroke="#38bdf8" stroke-width="3"/>
+  <!-- TV Screen -->
+  <rect x="15" y="25" width="98" height="62" rx="6" fill="url(#screen)"/>
+  <!-- TV Stand -->
+  <path d="M48 96 L40 110 L88 110 L80 96 Z" fill="#334155"/>
+  <rect x="34" y="108" width="60" height="5" rx="2.5" fill="#475569"/>
+  <!-- Backup/Sync Arrows inside Screen -->
+  <path d="M64 36 L48 52 L58 52 L58 68 L70 68 L70 52 L80 52 Z" fill="#ffffff" opacity="0.95"/>
+  <rect x="44" y="72" width="40" height="6" rx="3" fill="#bae6fd"/>
+</svg>

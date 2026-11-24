@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Android TV Streamer Backup
+GenericName=Android TV Backup & Restore Manager
+Comment=Native Zorin OS utility to backup and clone Android/Google TV streamers (APKs, Projectivy, settings, debloat)
+Icon=/home/achim/.gemini/antigravity/scratch/streamer-backup/icon.svg
+Terminal=false
+Exec=/home/achim/.gemini/antigravity/scratch/streamer-backup/streamer_backup_app.py
+Categories=Utility;System;
+Keywords=android;tv;google;backup;restore;adb;projectivy;
+StartupNotify=true
+StartupWMClass=io.github.achim.StreamerBackup
