@@ -6,15 +6,15 @@ A full-featured desktop utility for **Linux (Zorin OS / Ubuntu / GNOME)** and **
 
 ## Platforms Included
 
-1. **Linux / Zorin OS Native App (`streamer_backup_app.py`)**
+1. **Windows 10 / 11 Native Edition (`AndroidTV_Streamer_Backup.exe` / `StreamerBackup.cs`)**
+   - **Zero Prerequisites**: Written in native C# targeting **.NET Framework 4.8** (pre-installed on every Windows 10 and Windows 11 PC—no Python, no .NET SDK, and no runtime installs required).
+   - Double-click **`AndroidTV_Streamer_Backup.exe`** (or **`Launch_Windows_App.bat`**, which compiles `StreamerBackup.cs` in <1 second using Windows's built-in `%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe` if the `.exe` isn't present yet).
+   - **Built-in 1-Click ADB Installer**: Automatically detects `adb.exe` or downloads and extracts Google's official `platform-tools` for Windows with a single click.
+
+2. **Linux / Zorin OS Native App (`streamer_backup_app.py`)**
    - Built with **Python 3 + GTK 4 + Libadwaita** for a 100% native Zorin OS / GNOME desktop look and feel.
    - Includes `install_launchers.sh` to install desktop shortcuts, start-menu entries, and the custom taskbar icon (`icon.svg`).
    - Also includes standalone Bash CLI scripts (`backup_tv.sh` and `restore_tv.sh`).
-
-2. **Windows 10 / 11 App (`streamer_backup_windows.py` & `Launch_Windows_App.bat`)**
-   - Built with Python's standard `tkinter.ttk` (zero third-party pip packages required) with Windows 10/11 DPI scaling and native Dark Mode titlebar support.
-   - **Built-in 1-Click ADB Installer**: Automatically detects `adb.exe` or downloads and extracts Google's official `platform-tools` for Windows with a single click.
-   - Includes `build_windows_exe.bat` to package a standalone single-file `AndroidTV_Streamer_Backup.exe` via PyInstaller.
 
 ---
 
@@ -40,6 +40,12 @@ Every stage has its own checkbox (plus **Select All** / **Select None** buttons)
 
 ## Quick Start
 
+### On Windows 10 / 11 (No Python or SDK Required)
+
+1. Double-click **`AndroidTV_Streamer_Backup.exe`** (or **`Launch_Windows_App.bat`**).
+2. If `adb.exe` is not already installed on your PC, click the **"Download ADB"** button in the top-right corner of the app to automatically download Google's official Android Platform-Tools.
+3. *(Optional)* Run **`build_windows_exe.bat`** anytime after editing `StreamerBackup.cs` to recompile `AndroidTV_Streamer_Backup.exe` using Windows's built-in `.NET Framework` compiler.
+
 ### On Linux (Zorin OS / Ubuntu / Debian)
 
 1. Install `adb`:
@@ -59,10 +65,3 @@ Every stage has its own checkbox (plus **Select All** / **Select None** buttons)
    ./backup_tv.sh
    ./restore_tv.sh
    ```
-
-### On Windows 10 / 11
-
-1. Make sure [Python 3 for Windows](https://www.python.org/downloads/) is installed (with **"Add Python to PATH"** checked).
-2. Double-click **`Launch_Windows_App.bat`** (or run `python streamer_backup_windows.py`).
-3. If `adb.exe` is not already installed on your PC, click the **"Download ADB (Windows)"** button in the top-right corner of the app to automatically download Google's official Android Platform-Tools.
-4. *(Optional)* Double-click **`build_windows_exe.bat`** to generate a standalone `dist\AndroidTV_Streamer_Backup.exe` executable.

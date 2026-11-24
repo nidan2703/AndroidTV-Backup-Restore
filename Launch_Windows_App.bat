@@ -2,24 +2,42 @@
 title Android TV Streamer Backup & Restore
 cd /d "%~dp0"
 
-where pythonw >nul 2>nul
-if %ERRORLEVEL% EQU 0 (
-    start "" pythonw "%~dp0streamer_backup_windows.py"
+set "EXE_PATH=%~dp0AndroidTV_Streamer_Backup.exe"
+set "CS_PATH=%~dp0StreamerBackup.cs"
+
+if exist "%EXE_PATH%" (
+    start "" "%EXE_PATH%"
     exit /b 0
 )
 
-where python >nul 2>nul
-if %ERRORLEVEL% EQU 0 (
-    python "%~dp0streamer_backup_windows.py"
-    exit /b 0
+set "CSC=%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+if not exist "%CSC%" (
+    set "CSC=%SystemRoot%\Microsoft.NET\Framework\v4.0.30319\csc.exe"
 )
 
-where py >nul 2>nul
-if %ERRORLEVEL% EQU 0 (
-    py "%~dp0streamer_backup_windows.py"
-    exit /b 0
+if not exist "%CSC%" (
+    echo [ERROR] Built-in Windows .NET Framework C# compiler not found at:
+    echo   %CSC%
+    pause
+    exit /b 1
 )
 
-echo [ERROR] Python 3 is not installed or not in your Windows PATH.
-echo Download Python 3 from https://www.python.org/downloads/ and check "Add Python to PATH".
-pause
+echo Compiling native Windows executable (AndroidTV_Streamer_Backup.exe)...
+"%CSC%" /nologo /target:winexe /optimize+ /out:"%EXE_PATH%" ^
+    /r:System.dll ^
+    /r:System.Core.dll ^
+    /r:System.Drawing.dll ^
+    /r:System.Windows.Forms.dll ^
+    /r:System.IO.Compression.dll ^
+    /r:System.IO.Compression.FileSystem.dll ^
+    "%CS_PATH%"
+
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] Compilation failed.
+    pause
+    exit /b 1
+)
+
+echo Launching AndroidTV_Streamer_Backup.exe...
+start "" "%EXE_PATH%"
+exit /b 0

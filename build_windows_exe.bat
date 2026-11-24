@@ -1,14 +1,36 @@
 @echo off
-title Build Standalone Windows .EXE (PyInstaller)
+title Compile Native AndroidTV_Streamer_Backup.exe
 cd /d "%~dp0"
 
-echo Installing/verifying PyInstaller...
-python -m pip install --upgrade pyinstaller
+set "EXE_PATH=%~dp0AndroidTV_Streamer_Backup.exe"
+set "CS_PATH=%~dp0StreamerBackup.cs"
 
-echo Building standalone AndroidTV_Streamer_Backup.exe...
-python -m PyInstaller --noconfirm --onefile --windowed --name "AndroidTV_Streamer_Backup" streamer_backup_windows.py
+set "CSC=%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+if not exist "%CSC%" (
+    set "CSC=%SystemRoot%\Microsoft.NET\Framework\v4.0.30319\csc.exe"
+)
+
+echo Compiling %CS_PATH% using built-in Windows .NET Framework compiler:
+echo   %CSC%
+echo.
+
+"%CSC%" /nologo /target:winexe /optimize+ /out:"%EXE_PATH%" ^
+    /r:System.dll ^
+    /r:System.Core.dll ^
+    /r:System.Drawing.dll ^
+    /r:System.Windows.Forms.dll ^
+    /r:System.IO.Compression.dll ^
+    /r:System.IO.Compression.FileSystem.dll ^
+    "%CS_PATH%"
+
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo [ERROR] Build failed!
+    pause
+    exit /b 1
+)
 
 echo.
-echo Done! Your standalone executable is located at:
-echo   dist\AndroidTV_Streamer_Backup.exe
+echo [OK] Successfully built standalone Windows executable:
+echo   %EXE_PATH%
 pause
