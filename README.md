@@ -1,58 +1,33 @@
 # Android / Google TV Streamer Backup & Restore (Linux & Windows)
 
-A full-featured desktop utility for **Windows 10 / 11** and **Linux (Zorin OS / Ubuntu / GNOME)** to back up, restore, and clone Android TV / Google TV streaming boxes (Google TV Streamer, NVIDIA Shield TV, Chromecast with Google TV, etc.) over wireless ADB.
+A full-featured desktop utility for **Linux (Zorin OS / Ubuntu / GNOME)** and **Windows 10 / 11** to back up, restore, and clone Android TV / Google TV streaming boxes over wireless ADB.
+
+> [!IMPORTANT]
+> **Download the Entire Repository Folder (`< 75 KB` total)**
+> Do not download individual `.exe` or `.bat` files by themselves. Instead, click the green **`<> Code`** button at the top of the GitHub page and select **`Download ZIP`** (or run `git clone https://github.com/nidan2703/AndroidTV-Backup-Restore.git`), then extract the entire folder before running the app.
 
 ---
 
-## Easy Platform Downloads (Separate Folders & Ready-to-Download ZIPs)
+## Platforms Included
 
-To avoid mixing Windows and Linux files, the repository is cleanly split into separate folders and standalone `.zip` archives:
+1. **Windows 10 / 11 Native Edition (`AndroidTV_Streamer_Backup.exe` / `StreamerBackup.cs`)**
+   - **Zero Prerequisites**: Written in native C# targeting **.NET Framework 4.8** (pre-installed on every Windows 10 and Windows 11 PC—no Python, no .NET SDK, and no runtime installs required).
+   - After extracting the repository folder, double-click **`AndroidTV_Streamer_Backup.exe`** (or **`Launch_Windows_App.bat`**).
+   - **Built-in 1-Click ADB Installer**: Automatically detects `adb.exe` or downloads and extracts Google's official `platform-tools` for Windows with a single click.
 
-### 🪟 For Windows 10 / 11
-- **Quick ZIP Download**: Click **[`AndroidTV_Streamer_Backup_Windows.zip`](AndroidTV_Streamer_Backup_Windows.zip)** (or open the **[`Windows/`](Windows/)** folder).
-- **Zero Prerequisites**: Extract and double-click **`AndroidTV_Streamer_Backup.exe`**. Runs out-of-the-box on every Windows 10 & Windows 11 PC (uses built-in `.NET Framework 4.8` — no Python, no SDKs, and includes a 1-click **Download ADB** button).
-
-### 🐧 For Linux (Zorin OS / Ubuntu / Debian)
-- **Quick ZIP Download**: Click **[`AndroidTV_Streamer_Backup_Linux.zip`](AndroidTV_Streamer_Backup_Linux.zip)** (or open the **[`Linux/`](Linux/)** folder).
-- **Native GTK 4 / Libadwaita GUI + Bash CLI**: Extract and run `./streamer_backup_app.py` (or `./install_launchers.sh` to add Desktop & Start Menu shortcuts).
-
----
-
-## ⚠️ Important: Target TV Preparation Before Running a Restore
-
-When setting up a brand-new or factory-reset Android TV / Google TV device (such as an NVIDIA Shield TV or Google TV Streamer), **always complete the initial on-screen device setup first** before running the Restore tool:
-
-1. **Complete Initial Android / Google TV Setup**: Sign in with your Google account and finish the initial system walkthrough.
-2. **Install Suggested Apps When Prompted**: When Android TV / Google TV prompts you during initial setup to select or restore desired apps from your Google account, **check and allow it to install all desired apps** (do *not* skip/ignore that prompt). Letting Google Play batch-install your common streaming apps during setup ensures it automatically downloads the exact native builds for that specific device's Android OS version and CPU architecture, and speeds up the restore process significantly.
-3. **Install & Open Projectivy Launcher Once *(Recommended)***: If you use **Projectivy Launcher**, either install it from the Play Store during setup (or let our Restore tool open its Play Store page first) and open it once so Android initializes its external data directory.
-4. **Enable Developer Options & USB / Network Debugging**:
-   - Go to **Settings -> System -> About** and click **Android TV OS build** 7 times until *"You are now a developer!"* appears.
-   - Go to **Settings -> System -> Developer options** and turn ON **USB debugging** / **Network debugging** (Wireless debugging).
-5. **Run the Restore Tool**: Now click **Restore to Target TV** in our app to clone all your sideloaded apps, queue any remaining Play Store apps from your manifest, restore runtime permissions, system/secure/global settings, wallpapers/downloads, disable the stock launcher/bloatware, and automatically import your Projectivy layout, categories, and button color schemes!
-
----
-
-## Smart App Handling: Play Store Manifest (Mode A) + Sideloaded APK Cloning
-
-When cloning between different Android TV / Google TV boxes (for example, from an **Android 14 Google TV Streamer** to an **Android 11 NVIDIA Shield TV**), sideloading Split APK bundles originally downloaded from Google Play onto a different device can fail with `INSTALL_FAILED_OLDER_SDK` or refuse to open due to CPU architecture (`armeabi-v7a` vs `arm64-v8a`) and Google Play licensing checks.
-
-To ensure 100% compatibility across any Android TV or Google TV box:
-
-1. **Play Store Apps (`installer=com.android.vending`) -> Fresh Play Store Install via Manifest (`packages/playstore_packages.txt`)**
-   - During **Backup**, the tool inspects every package's installer origin (`pm list packages -3 -i`). Apps installed from the Google Play Store are saved to the Play Store manifest (`packages/playstore_packages.txt`) without wasting time pulling device-locked Split APKs.
-   - During **Restore**, the tool checks which Play Store apps from your manifest are not yet installed on the Target TV (skipping all apps you already installed during the initial Google/Android TV setup prompt, and putting **Projectivy Launcher** first if missing) and automatically opens each remaining app's page directly on the Target TV's **Google Play Store** (`market://details?id=<pkg>`) so the TV downloads the exact native build for its Android SDK and CPU.
-2. **Sideloaded Apps -> Direct APK & Split APK Cloning (`packages/sideloaded_packages.txt` & `apks/<pkg>/`)**
-   - Apps installed outside the Play Store (via Downloader, Aptoide TV, file managers, etc.) have all of their base and split APKs pulled during Backup and automatically cloned onto the Target TV via `adb install-multiple -r -g`.
-   - *Backward Compatibility*: If you restore from an older backup folder created before this update, the tool automatically classifies your existing backup into Play Store vs. Sideloaded apps on the fly.
+2. **Linux / Zorin OS Native App (`streamer_backup_app.py`)**
+   - Built with **Python 3 + GTK 4 + Libadwaita** for a 100% native Zorin OS / GNOME desktop look and feel.
+   - Includes `install_launchers.sh` to install desktop shortcuts, start-menu entries, and the custom taskbar icon (`icon.svg`).
+   - Also includes standalone Bash CLI scripts (`backup_tv.sh` and `restore_tv.sh`).
 
 ---
 
 ## Complete 6-Stage Streamer Cloning Pipeline
 
-Every stage has its own checkbox (plus **Select All** / **Select None** buttons) so you can perform a full box-to-box restore or run any single stage independently:
+Every stage has its own checkbox (plus **Select All** / **Select None** buttons) so you can perform a full box-to-box clone or run any single stage independently:
 
-1. **Play Store Manifest & Sideloaded APK Cloning**
-   - Clones sideloaded APKs directly via `adb install-multiple -r -g` and queues missing Play Store manifest apps directly in the Target TV's Google Play Store.
+1. **3rd-Party APKs & Split APKs**
+   - Enumerates all user-installed packages (`pm list packages -3`), resolves base and split APK paths via `pm path <pkg>`, pulls them into `apks/<pkg>/`, and batch-installs them on the target device via `adb install-multiple -r -g`.
 2. **Granted Runtime Permissions**
    - Parses `dumpsys package <pkg>` for `granted=true` runtime permissions and re-grants them on the target device via `pm grant`.
 3. **Projectivy Layout, App Groupings & Button Color Schemes (`.plbackup`)**
@@ -63,4 +38,40 @@ Every stage has its own checkbox (plus **Select All** / **Select None** buttons)
 5. **Safe System, Secure & Global Settings**
    - Dumps and restores `system`, `secure`, and `global` settings while automatically filtering out device-unique and connectivity-sensitive keys (`android_id`, `bluetooth_address`, `wifi_on`, `device_name`, `boot_count`, etc.).
 6. **Disabled Bloatware, Stock Launcher & Projectivy HOME Intent**
-   - Saves disabled packages (`pm list packages -d`), safely verifies Projectivy is installed before disabling the stock launcher (`com.google.android.apps.tv.launcherx` / `com.google.android.tungsten.setupwraith`), disables bloatware via `pm disable-user --user 0`, sets Projectivy (`com.spocky.projengmenu`) as the default home activity, and triggers the `HOME` intent.
+   - Saves disabled packages (`pm list packages -d`), re-disables the stock Google TV launcher (`com.google.android.apps.tv.launcherx` and `com.google.android.tungsten.setupwraith`) and disabled bloatware via `pm disable-user --user 0`, sets Projectivy (`com.spocky.projengmenu`) as the home activity, and triggers the `HOME` intent.
+
+---
+
+## Quick Start
+
+### On Windows 10 / 11 (No Python or SDK Required)
+
+1. Click **`<> Code` → `Download ZIP`** on GitHub and **extract the entire folder** (the whole project is under 75 KB).
+2. Open the extracted folder and double-click **`AndroidTV_Streamer_Backup.exe`** (or **`Launch_Windows_App.bat`**).
+3. If `adb.exe` is not already installed on your PC, click the **"Download ADB"** button in the top-right corner of the app to automatically download Google's official Android Platform-Tools.
+4. *(Optional)* Run **`build_windows_exe.bat`** anytime after editing `StreamerBackup.cs` to recompile `AndroidTV_Streamer_Backup.exe` using Windows's built-in `.NET Framework` compiler.
+
+### On Linux (Zorin OS / Ubuntu / Debian)
+
+1. Clone or download and extract the entire repository folder:
+   ```bash
+   git clone https://github.com/nidan2703/AndroidTV-Backup-Restore.git
+   cd AndroidTV-Backup-Restore
+   ```
+2. Install `adb`:
+   ```bash
+   sudo apt update && sudo apt install -y adb
+   ```
+3. Launch the native GTK 4 / Libadwaita GUI:
+   ```bash
+   ./streamer_backup_app.py
+   ```
+4. *(Optional)* Install Desktop & Application Menu shortcuts:
+   ```bash
+   ./install_launchers.sh
+   ```
+5. *(Optional)* Run the standalone interactive CLI scripts:
+   ```bash
+   ./backup_tv.sh
+   ./restore_tv.sh
+   ```
