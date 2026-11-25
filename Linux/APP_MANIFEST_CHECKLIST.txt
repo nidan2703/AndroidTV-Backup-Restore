@@ -1,0 +1,67 @@
+==============================================================================
+  ANDROID / GOOGLE TV APP MANIFEST & DEVICE-A -> DEVICE-B CHECKLIST
+==============================================================================
+Backup Source Folder : /home/achim/Android Streamer Backup
+Total 3rd-Party Apps : 44 (38 Play Store + 6 Sideloaded)
+==============================================================================
+INSTRUCTIONS FOR TARGET DEVICE (B):
+  1. Complete the initial Android/Google TV setup on Device B and allow it
+     to install your desired apps when prompted during setup.
+  2. Run 'Restore to Target TV' in the Backup & Restore app.
+  3. Use the checkboxes [ ] below (or check APP_RESTORE_VERIFICATION_REPORT.txt
+     after restore) to verify every app from Device A is installed on Device B.
+==============================================================================
+
+--- SECTION 1: GOOGLE PLAY STORE APPS (38) ---
+(Installed fresh from Google Play on Device B to match its Android SDK & CPU)
+
+[ ]  1. Fandango at Home (Vudu)              (air.com.vudu.air.DownloaderTablet)
+[ ]  2. Amazon Prime Video                   (com.amazon.amazonvideo.livingroom)
+[ ]  3. Angel Studios                        (com.angel.tv)
+[ ]  4. Apple TV                             (com.apple.atve.androidtv.appletv)
+[ ]  5. Paramount+                           (com.cbs.ott)
+[ ]  6. Disney+                              (com.disney.disneyplus)
+[ ]  7. Downloader by AFTVnews               (com.esaba.downloader)
+[ ]  8. ESPN                                 (com.espn.score_center)
+[ ]  9. FOX Sports / FOX One                 (com.fox.foxone)
+[ ] 10. YouTube (Android TV)                 (com.google.android.youtube.tv)
+[ ] 11. Hulu                                 (com.hulu.livingroomplus)
+[ ] 12. Kanopy                               (com.kanopy.tvapp)
+[ ] 13. MiXplorer Silver File Manager        (com.mixplorer.silver)
+[ ] 14. Movies Anywhere                      (com.moviesanywhere.goo)
+[ ] 15. NBC                                  (com.nbcuni.nbc.androidtv)
+[ ] 16. Netflix                              (com.netflix.ninja)
+[ ] 17. Peacock TV                           (com.peacocktv.peacockandroid)
+[ ] 18. TV Bro Web Browser                   (com.phlox.tvwebbrowser)
+[ ] 19. Plex                                 (com.plexapp.android)
+[ ] 20. The Roku Channel                     (com.roku.web.trc)
+[ ] 21. Sling TV                             (com.sling)
+[ ] 22. Spectrum TV                          (com.spectrum.stva.androidtv)
+[ ] 23. Projectivy Launcher                  (com.spocky.projengmenu)
+[ ] 24. Stremio                              (com.stremio.one)
+[ ] 25. Surfshark VPN                        (com.surfshark.vpnclient.android)
+[ ] 26. Truth+                               (com.truthsocial.android.tv.tplus)
+[ ] 27. Tubi TV                              (com.tubitv)
+[ ] 28. Rakuten Viki                         (com.viki.android)
+[ ] 29. Max (HBO Max)                        (com.wbd.stream)
+[ ] 30. ZDFmediathek                         (com.zdf.android.mediathek)
+[ ] 31. ATV Launcher Pro                     (de.eye_interactive.atvl.playstore)
+[ ] 32. FC Bayern TV                         (de.fcbayern.android)
+[ ] 33. ARD Mediathek                        (de.swr.avp.ard.tv)
+[ ] 34. tvQuickActions Pro                   (dev.vodik7.tvquickactions)
+[ ] 35. VLC Media Player                     (org.videolan.vlc)
+[ ] 36. Solid Explorer File Manager          (pl.solidexplorer2)
+[ ] 37. Pluto TV                             (tv.pluto.android)
+[ ] 38. Rakuten TV                           (tv.wuaki.apptv)
+
+--- SECTION 2: SIDELOADED APPS (6) ---
+(Cloned automatically via ADB from apks/<package>/ during Restore)
+
+[ ]  1. TiviMate IPTV Player                 (ar.tvplayer.tv)
+[ ]  2. Aptoide TV                           (cm.aptoidetv.pt)
+[ ]  3. Nuvio TV                             (com.nuvio.tv)
+[ ]  4. TDUK App Killer                      (com.tduk.appklr)
+[ ]  5. TDUK Cache Cleaner                   (com.tduk.cacheclean)
+[ ]  6. Projectivy Icon Pack / Blueprint     (dev.projectivy.blueprint.app)
+
+==============================================================================

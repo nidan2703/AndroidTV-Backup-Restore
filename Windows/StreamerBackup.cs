@@ -89,6 +89,62 @@ namespace StreamerBackup
             "tv.wuaki.apptv"
         };
 
+        // Friendly human-readable titles for common Android/Google TV packages
+        private static readonly Dictionary<string, string> KnownAppNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "air.com.vudu.air.DownloaderTablet", "Fandango at Home (Vudu)" },
+            { "ar.tvplayer.tv", "TiviMate IPTV Player" },
+            { "cm.aptoidetv.pt", "Aptoide TV" },
+            { "com.amazon.amazonvideo.livingroom", "Amazon Prime Video" },
+            { "com.angel.tv", "Angel Studios" },
+            { "com.apple.atve.androidtv.appletv", "Apple TV" },
+            { "com.cbs.ott", "Paramount+" },
+            { "com.disney.disneyplus", "Disney+" },
+            { "com.esaba.downloader", "Downloader by AFTVnews" },
+            { "com.espn.score_center", "ESPN" },
+            { "com.fox.foxone", "FOX Sports / FOX One" },
+            { "com.google.android.youtube.tv", "YouTube (Android TV)" },
+            { "com.hulu.livingroomplus", "Hulu" },
+            { "com.kanopy.tvapp", "Kanopy" },
+            { "com.mixplorer.silver", "MiXplorer Silver File Manager" },
+            { "com.moviesanywhere.goo", "Movies Anywhere" },
+            { "com.nbcuni.nbc.androidtv", "NBC" },
+            { "com.netflix.ninja", "Netflix" },
+            { "com.nuvio.tv", "Nuvio TV" },
+            { "com.peacocktv.peacockandroid", "Peacock TV" },
+            { "com.phlox.tvwebbrowser", "TV Bro Web Browser" },
+            { "com.plexapp.android", "Plex" },
+            { "com.roku.web.trc", "The Roku Channel" },
+            { "com.sling", "Sling TV" },
+            { "com.spectrum.stva.androidtv", "Spectrum TV" },
+            { "com.spocky.projengmenu", "Projectivy Launcher" },
+            { "com.stremio.one", "Stremio" },
+            { "com.surfshark.vpnclient.android", "Surfshark VPN" },
+            { "com.tduk.appklr", "TDUK App Killer" },
+            { "com.tduk.cacheclean", "TDUK Cache Cleaner" },
+            { "com.truthsocial.android.tv.tplus", "Truth+" },
+            { "com.tubitv", "Tubi TV" },
+            { "com.viki.android", "Rakuten Viki" },
+            { "com.wbd.stream", "Max (HBO Max)" },
+            { "com.zdf.android.mediathek", "ZDFmediathek" },
+            { "de.eye_interactive.atvl.playstore", "ATV Launcher Pro" },
+            { "de.fcbayern.android", "FC Bayern TV" },
+            { "de.swr.avp.ard.tv", "ARD Mediathek" },
+            { "dev.projectivy.blueprint.app", "Projectivy Icon Pack / Blueprint" },
+            { "dev.vodik7.tvquickactions", "tvQuickActions Pro" },
+            { "org.videolan.vlc", "VLC Media Player" },
+            { "pl.solidexplorer2", "Solid Explorer File Manager" },
+            { "tv.pluto.android", "Pluto TV" },
+            { "tv.wuaki.apptv", "Rakuten TV" }
+        };
+
+        private static string GetFriendlyAppName(string pkg)
+        {
+            string name;
+            if (KnownAppNames.TryGetValue(pkg, out name)) return name;
+            return pkg;
+        }
+
         private string configDir;
         private string configFile;
         private string defaultBackupDir;
@@ -1219,6 +1275,152 @@ namespace StreamerBackup
             }
         }
 
+        private void WriteBackupManifestChecklist(
+            string bdir,
+            string sourceTarget,
+            string model,
+            string ver,
+            string ts,
+            List<string> playStorePkgs,
+            List<string> sideloadedPkgs)
+        {
+            try
+            {
+                StringBuilder sb = new StringBuilder();
+                sb.AppendLine("==============================================================================");
+                sb.AppendLine("  ANDROID / GOOGLE TV APP MANIFEST & DEVICE-A -> DEVICE-B CHECKLIST");
+                sb.AppendLine("==============================================================================");
+                sb.AppendLine(string.Format("Backup Timestamp     : {0}", ts));
+                sb.AppendLine(string.Format("Source Device (A)    : {0} (Android {1}) @ {2}", model, ver, sourceTarget));
+                sb.AppendLine(string.Format("Total 3rd-Party Apps : {0} ({1} Play Store + {2} Sideloaded)",
+                    playStorePkgs.Count + sideloadedPkgs.Count, playStorePkgs.Count, sideloadedPkgs.Count));
+                sb.AppendLine("==============================================================================");
+                sb.AppendLine("INSTRUCTIONS FOR TARGET DEVICE (B):");
+                sb.AppendLine("  1. Complete the initial Android/Google TV setup on Device B and allow it");
+                sb.AppendLine("     to install your desired apps when prompted during setup.");
+                sb.AppendLine("  2. Run 'Restore to Target TV' in the Backup & Restore app.");
+                sb.AppendLine("  3. Use the checkboxes [ ] below (or check APP_RESTORE_VERIFICATION_REPORT.txt");
+                sb.AppendLine("     after restore) to verify every app from Device A is installed on Device B.");
+                sb.AppendLine("==============================================================================");
+                sb.AppendLine();
+                sb.AppendLine(string.Format("--- SECTION 1: GOOGLE PLAY STORE APPS ({0}) ---", playStorePkgs.Count));
+                sb.AppendLine("(Installed fresh from Google Play on Device B to match its Android SDK & CPU)");
+                sb.AppendLine();
+                for (int i = 0; i < playStorePkgs.Count; i++)
+                {
+                    string pkg = playStorePkgs[i];
+                    sb.AppendLine(string.Format("[ ] {0,2}. {1,-36} ({2})", i + 1, GetFriendlyAppName(pkg), pkg));
+                }
+                sb.AppendLine();
+                sb.AppendLine(string.Format("--- SECTION 2: SIDELOADED APPS ({0}) ---", sideloadedPkgs.Count));
+                sb.AppendLine("(Cloned automatically via ADB from apks/<package>/ during Restore)");
+                sb.AppendLine();
+                for (int i = 0; i < sideloadedPkgs.Count; i++)
+                {
+                    string pkg = sideloadedPkgs[i];
+                    sb.AppendLine(string.Format("[ ] {0,2}. {1,-36} ({2})", i + 1, GetFriendlyAppName(pkg), pkg));
+                }
+                sb.AppendLine();
+                sb.AppendLine("==============================================================================");
+
+                string checklistPath = Path.Combine(bdir, "APP_MANIFEST_CHECKLIST.txt");
+                File.WriteAllText(checklistPath, sb.ToString(), Encoding.UTF8);
+                AppendLog("[OK] Created printable user checklist: " + checklistPath);
+            }
+            catch (Exception ex)
+            {
+                AppendLog("[WARN] Could not write APP_MANIFEST_CHECKLIST.txt: " + ex.Message);
+            }
+        }
+
+        private void WriteRestoreVerificationReport(
+            string bdir,
+            string targetAddr,
+            List<string> playStorePkgs,
+            List<string> sideloadedPkgs,
+            Dictionary<string, string> statusNotes)
+        {
+            try
+            {
+                string model = AdbOut(targetAddr, "shell getprop ro.product.model").Trim();
+                string ver = AdbOut(targetAddr, "shell getprop ro.build.version.release").Trim();
+                if (string.IsNullOrEmpty(model)) model = "Unknown";
+                string ts = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+
+                HashSet<string> finalInstalled = GetInstalledPackagesOnDevice(targetAddr);
+                int totalApps = playStorePkgs.Count + sideloadedPkgs.Count;
+                int confirmedInstalled = 0;
+                foreach (string p in playStorePkgs) if (finalInstalled.Contains(p)) confirmedInstalled++;
+                foreach (string p in sideloadedPkgs) if (finalInstalled.Contains(p)) confirmedInstalled++;
+
+                StringBuilder sb = new StringBuilder();
+                sb.AppendLine("==============================================================================");
+                sb.AppendLine("  DEVICE-A -> DEVICE-B APP RESTORE VERIFICATION REPORT & CHECKLIST");
+                sb.AppendLine("==============================================================================");
+                sb.AppendLine(string.Format("Restore Timestamp    : {0}", ts));
+                sb.AppendLine(string.Format("Target Device (B)    : {0} (Android {1}) @ {2}", model, ver, targetAddr));
+                sb.AppendLine(string.Format("Verification Summary : {0} / {1} app(s) confirmed installed on Device B", confirmedInstalled, totalApps));
+                sb.AppendLine("                       (Note: Play Store apps queued in background may still be downloading)");
+                sb.AppendLine("==============================================================================");
+                sb.AppendLine("LEGEND:");
+                sb.AppendLine("  [x] = Confirmed installed on Device B");
+                sb.AppendLine("  [~] = Opened/Queued in Google Play on Device B (check TV download queue)");
+                sb.AppendLine("  [ ] = Not installed / Skipped / Failed");
+                sb.AppendLine("==============================================================================");
+                sb.AppendLine();
+                sb.AppendLine(string.Format("--- SECTION 1: GOOGLE PLAY STORE APPS ({0}) ---", playStorePkgs.Count));
+                sb.AppendLine();
+                for (int i = 0; i < playStorePkgs.Count; i++)
+                {
+                    string pkg = playStorePkgs[i];
+                    bool isInst = finalInstalled.Contains(pkg);
+                    string note;
+                    if (!statusNotes.TryGetValue(pkg, out note)) note = "";
+                    string box = isInst ? "[x]" : (note.IndexOf("Queued", StringComparison.OrdinalIgnoreCase) >= 0 ? "[~]" : "[ ]");
+                    string statusText = isInst
+                        ? (string.IsNullOrEmpty(note) ? "INSTALLED ON DEVICE B" : note)
+                        : (string.IsNullOrEmpty(note) ? "NOT INSTALLED" : note);
+                    sb.AppendLine(string.Format("{0} {1,2}. {2,-34} ({3}) -> {4}",
+                        box, i + 1, GetFriendlyAppName(pkg), pkg, statusText));
+                }
+                sb.AppendLine();
+                sb.AppendLine(string.Format("--- SECTION 2: SIDELOADED APPS ({0}) ---", sideloadedPkgs.Count));
+                sb.AppendLine();
+                for (int i = 0; i < sideloadedPkgs.Count; i++)
+                {
+                    string pkg = sideloadedPkgs[i];
+                    bool isInst = finalInstalled.Contains(pkg);
+                    string note;
+                    if (!statusNotes.TryGetValue(pkg, out note)) note = "";
+                    string box = isInst ? "[x]" : "[ ]";
+                    string statusText = isInst
+                        ? (string.IsNullOrEmpty(note) ? "CLONED & INSTALLED ON DEVICE B" : note)
+                        : (string.IsNullOrEmpty(note) ? "NOT INSTALLED" : note);
+                    sb.AppendLine(string.Format("{0} {1,2}. {2,-34} ({3}) -> {4}",
+                        box, i + 1, GetFriendlyAppName(pkg), pkg, statusText));
+                }
+                sb.AppendLine();
+                sb.AppendLine("==============================================================================");
+
+                string reportPath = Path.Combine(bdir, "APP_RESTORE_VERIFICATION_REPORT.txt");
+                File.WriteAllText(reportPath, sb.ToString(), Encoding.UTF8);
+                // Also ensure APP_MANIFEST_CHECKLIST.txt exists if this was a legacy backup folder
+                string checklistPath = Path.Combine(bdir, "APP_MANIFEST_CHECKLIST.txt");
+                if (!File.Exists(checklistPath))
+                {
+                    WriteBackupManifestChecklist(bdir, "Backup Folder", "Source TV", "?", ts, playStorePkgs, sideloadedPkgs);
+                }
+                AppendLog("==========================================================");
+                AppendLog(string.Format("[OK] Verification Checklist saved to: {0}", reportPath));
+                AppendLog(string.Format("     ({0}/{1} apps confirmed installed on Target TV; click 'Open Backup Folder' to view)", confirmedInstalled, totalApps));
+                AppendLog("==========================================================");
+            }
+            catch (Exception ex)
+            {
+                AppendLog("[WARN] Could not write APP_RESTORE_VERIFICATION_REPORT.txt: " + ex.Message);
+            }
+        }
+
         // ----------------------------------------------------------------------
         // BACKUP WORKFLOW
         // ----------------------------------------------------------------------
@@ -1321,6 +1523,8 @@ namespace StreamerBackup
                     sideloadedPkgs.Count > 0 ? string.Join("\n", sideloadedPkgs.ToArray()) + "\n" : "", Encoding.UTF8);
                 File.WriteAllText(Path.Combine(packagesDir, "package_installers.txt"),
                     installerLines.Count > 0 ? string.Join("\n", installerLines.ToArray()) + "\n" : "", Encoding.UTF8);
+
+                WriteBackupManifestChecklist(bdir, target, model, ver, ts, playStorePkgs, sideloadedPkgs);
 
                 AppendLog(string.Format("Found {0} 3rd-party app(s): {1} Play Store app(s) (manifest), {2} Sideloaded app(s) (APK clone).",
                     pkgs.Count, playStorePkgs.Count, sideloadedPkgs.Count));
@@ -1540,12 +1744,13 @@ namespace StreamerBackup
             }
 
             // 2. Restore Sideloaded APKs via ADB & Install Play Store Apps Fresh from Google Play (Mode A)
+            List<string> playStorePkgs;
+            List<string> sideloadedPkgs;
+            LoadPackageListsForRestore(bdir, out playStorePkgs, out sideloadedPkgs);
+            Dictionary<string, string> restoreStatusNotes = new Dictionary<string, string>(StringComparer.Ordinal);
+
             if (!cancelRequested && chkApks.Checked)
             {
-                List<string> playStorePkgs;
-                List<string> sideloadedPkgs;
-                LoadPackageListsForRestore(bdir, out playStorePkgs, out sideloadedPkgs);
-
                 AppendLog(string.Format("Manifest Summary: {0} Sideloaded app(s) to clone via ADB, {1} Play Store app(s) to verify/install via Google Play.",
                     sideloadedPkgs.Count, playStorePkgs.Count));
 
@@ -1559,11 +1764,16 @@ namespace StreamerBackup
                     string pkgDir = Path.Combine(apksDir, pkgName);
                     if (!Directory.Exists(pkgDir))
                     {
+                        restoreStatusNotes[pkgName] = "SKIPPED (APK folder missing in backup)";
                         AppendLog(string.Format("  [WARN] Sideloaded APK folder missing for {0}, skipping.", pkgName));
                         continue;
                     }
                     string[] apkFiles = Directory.GetFiles(pkgDir, "*.apk");
-                    if (apkFiles.Length == 0) continue;
+                    if (apkFiles.Length == 0)
+                    {
+                        restoreStatusNotes[pkgName] = "SKIPPED (No APK files in folder)";
+                        continue;
+                    }
 
                     sideloadAttempted++;
                     Array.Sort(apkFiles, StringComparer.Ordinal);
@@ -1581,6 +1791,7 @@ namespace StreamerBackup
                     if (code == 0)
                     {
                         sideloadInstalled++;
+                        restoreStatusNotes[pkgName] = "CLONED & INSTALLED VIA ADB";
                         AppendLog("  [OK] Cloned sideloaded app: " + pkgName);
                     }
                     else
@@ -1591,10 +1802,12 @@ namespace StreamerBackup
                         if (code2 == 0)
                         {
                             sideloadInstalled++;
+                            restoreStatusNotes[pkgName] = "CLONED & INSTALLED VIA ADB (without -g)";
                             AppendLog("  [OK] Cloned sideloaded app: " + pkgName + " (without -g)");
                         }
                         else
                         {
+                            restoreStatusNotes[pkgName] = "FAILED ADB CLONE (" + outStr2.Trim().Replace("\n", " ") + ")";
                             AppendLog("  [ERROR] Failed to clone sideloaded app " + pkgName + ": " + outStr2.Trim());
                         }
                     }
@@ -1619,6 +1832,7 @@ namespace StreamerBackup
                         if (currentlyInstalled.Contains(pkg))
                         {
                             alreadyInstalledPlay++;
+                            restoreStatusNotes[pkg] = "ALREADY INSTALLED ON DEVICE B (Setup / Pre-installed)";
                         }
                         else if (pkg != PROJECTIVY_PKG)
                         {
@@ -1640,33 +1854,36 @@ namespace StreamerBackup
                         {
                             if (cancelRequested || skipRemainingPlayStore) break;
                             string pkg = missingPlayPkgs[i];
+                            string friendly = GetFriendlyAppName(pkg);
 
                             // Re-check in case a previous Play Store background download finished
                             currentlyInstalled = GetInstalledPackagesOnDevice(target);
                             if (currentlyInstalled.Contains(pkg))
                             {
                                 playInstalledCount++;
-                                AppendLog(string.Format("[Play Store {0}/{1}] {2} is now installed!", i + 1, missingPlayPkgs.Count, pkg));
+                                restoreStatusNotes[pkg] = "INSTALLED FROM GOOGLE PLAY ON DEVICE B";
+                                AppendLog(string.Format("[Play Store {0}/{1}] {2} ({3}) is now installed!", i + 1, missingPlayPkgs.Count, friendly, pkg));
                                 continue;
                             }
 
                             int pct = 35 + (int)(25.0 * (i + 1) / Math.Max(1, missingPlayPkgs.Count));
-                            SetProgress(pct, string.Format("[Play Store {0}/{1}] Opening {2} on TV Play Store...", i + 1, missingPlayPkgs.Count, pkg));
-                            AppendLog(string.Format("[Play Store {0}/{1}] Opening Google Play Store on TV for: {2}", i + 1, missingPlayPkgs.Count, pkg));
+                            SetProgress(pct, string.Format("[Play Store {0}/{1}] Opening {2} on TV Play Store...", i + 1, missingPlayPkgs.Count, friendly));
+                            AppendLog(string.Format("[Play Store {0}/{1}] Opening Google Play Store on TV for: {2} ({3})", i + 1, missingPlayPkgs.Count, friendly, pkg));
 
                             OpenPlayStoreForPackage(target, pkg);
 
                             // Poll automatically in the background while prompt or user installs on TV
                             DialogResult dr = ShowMessageBoxOnUi(
                                 string.Format("Play Store App [{0} of {1}]:\n\n" +
-                                    "Package: {2}\n\n" +
+                                    "App: {2}\n" +
+                                    "Package: {3}\n\n" +
                                     "The Google Play Store page for this app is now open on your TV screen.\n" +
                                     "1. Press 'Install' on your TV remote.\n" +
                                     "2. Click 'YES' below to move to the next Play Store app (you don't need to wait for the download to finish once it starts queuing).\n\n" +
                                     "- Click 'YES' -> Next Play Store App\n" +
                                     "- Click 'NO' -> Re-open this app's Play Store page on TV\n" +
                                     "- Click 'CANCEL' -> Skip remaining Play Store apps and continue restore",
-                                    i + 1, missingPlayPkgs.Count, pkg),
+                                    i + 1, missingPlayPkgs.Count, friendly, pkg),
                                 string.Format("Install from Google Play on TV ({0}/{1})", i + 1, missingPlayPkgs.Count),
                                 MessageBoxButtons.YesNoCancel,
                                 MessageBoxIcon.Information);
@@ -1679,6 +1896,11 @@ namespace StreamerBackup
                             }
                             else if (dr == DialogResult.Cancel)
                             {
+                                for (int k = i; k < missingPlayPkgs.Count; k++)
+                                {
+                                    if (!restoreStatusNotes.ContainsKey(missingPlayPkgs[k]))
+                                        restoreStatusNotes[missingPlayPkgs[k]] = "SKIPPED BY USER DURING PLAY STORE QUEUE";
+                                }
                                 AppendLog("[INFO] Skipping remaining Play Store manifest apps at user request.");
                                 skipRemainingPlayStore = true;
                                 break;
@@ -1688,11 +1910,13 @@ namespace StreamerBackup
                             if (currentlyInstalled.Contains(pkg))
                             {
                                 playInstalledCount++;
-                                AppendLog("  [OK] Confirmed installed: " + pkg);
+                                restoreStatusNotes[pkg] = "INSTALLED FROM GOOGLE PLAY ON DEVICE B";
+                                AppendLog("  [OK] Confirmed installed: " + friendly + " (" + pkg + ")");
                             }
                             else
                             {
-                                AppendLog("  [INFO] Queued/proceeding to next app: " + pkg);
+                                restoreStatusNotes[pkg] = "QUEUED IN GOOGLE PLAY ON DEVICE B (Verify download on TV)";
+                                AppendLog("  [INFO] Queued/proceeding to next app: " + friendly + " (" + pkg + ")");
                             }
                         }
 
@@ -1824,6 +2048,12 @@ namespace StreamerBackup
             {
                 SetProgress(96, "Restoring Projectivy layout, app groupings & button colors...");
                 PushAndImportProjectivyBackups(target, bdir);
+            }
+
+            // 7. Write Final Device-A -> Device-B Verification Checklist Report
+            if (!cancelRequested && (playStorePkgs.Count > 0 || sideloadedPkgs.Count > 0))
+            {
+                WriteRestoreVerificationReport(bdir, target, playStorePkgs, sideloadedPkgs, restoreStatusNotes);
             }
 
             if (cancelRequested)

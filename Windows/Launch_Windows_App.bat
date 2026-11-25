@@ -10,6 +10,16 @@ if exist "%EXE_PATH%" (
     exit /b 0
 )
 
+if not exist "%CS_PATH%" (
+    echo [ERROR] Missing companion files in this folder!
+    echo Please download and extract the ENTIRE Windows folder or ZIP archive
+    echo ^(AndroidTV_Streamer_Backup_Windows.zip or "Code -> Download ZIP"^)
+    echo from GitHub rather than downloading a single .bat or .exe file by itself.
+    echo.
+    pause
+    exit /b 1
+)
+
 set "CSC=%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if not exist "%CSC%" (
     set "CSC=%SystemRoot%\Microsoft.NET\Framework\v4.0.30319\csc.exe"

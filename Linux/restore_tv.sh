@@ -486,6 +486,67 @@ else
 fi
 
 # ------------------------------------------------------------------------------
+# 11. Generate APP_RESTORE_VERIFICATION_REPORT.txt Checklist
+# ------------------------------------------------------------------------------
+log_step "Step 11: Generating Device-A -> Device-B App Verification Report"
+
+REPORT_FILE="${BACKUP_ROOT}/APP_RESTORE_VERIFICATION_REPORT.txt"
+FINAL_INSTALLED=$("${ADB_CMD[@]}" shell pm list packages 2>/dev/null | tr -d '\r' | sed 's/^package://')
+TARGET_MODEL=$("${ADB_CMD[@]}" shell getprop ro.product.model 2>/dev/null | tr -d '\r')
+TARGET_VER=$("${ADB_CMD[@]}" shell getprop ro.build.version.release 2>/dev/null | tr -d '\r')
+RESTORE_TS=$(date +"%Y-%m-%d %H:%M:%S")
+
+TOTAL_MANIFEST_APPS=$(( ${#PLAYSTORE_PKGS[@]} + ${#SIDELOADED_PKGS[@]} ))
+CONFIRMED_APPS=0
+for p in "${PLAYSTORE_PKGS[@]}" "${SIDELOADED_PKGS[@]}"; do
+    if echo "$FINAL_INSTALLED" | grep -qx "$p"; then
+        ((CONFIRMED_APPS++))
+    fi
+done
+
+{
+    echo "=============================================================================="
+    echo "  DEVICE-A -> DEVICE-B APP RESTORE VERIFICATION REPORT & CHECKLIST"
+    echo "=============================================================================="
+    echo "Restore Timestamp    : ${RESTORE_TS}"
+    echo "Target Device (B)    : ${TARGET_MODEL:-Unknown} (Android ${TARGET_VER:-Unknown}) @ ${TARGET_ADDR}"
+    echo "Verification Summary : ${CONFIRMED_APPS} / ${TOTAL_MANIFEST_APPS} app(s) confirmed installed on Device B"
+    echo "                       (Note: Play Store apps queued in background may still be downloading)"
+    echo "=============================================================================="
+    echo "LEGEND:"
+    echo "  [x] = Confirmed installed on Device B"
+    echo "  [ ] = Not installed yet (check Google Play download queue on TV or install manually)"
+    echo "=============================================================================="
+    echo ""
+    echo "--- SECTION 1: GOOGLE PLAY STORE APPS (${#PLAYSTORE_PKGS[@]}) ---"
+    echo ""
+    idx=0
+    for p in "${PLAYSTORE_PKGS[@]}"; do
+        ((idx++))
+        if echo "$FINAL_INSTALLED" | grep -qx "$p"; then
+            printf "[x] %2d. %-42s -> INSTALLED ON DEVICE B\n" "$idx" "$p"
+        else
+            printf "[ ] %2d. %-42s -> NOT INSTALLED YET (Check Play Store Queue)\n" "$idx" "$p"
+        fi
+    done
+    echo ""
+    echo "--- SECTION 2: SIDELOADED APPS (${#SIDELOADED_PKGS[@]}) ---"
+    echo ""
+    idx=0
+    for p in "${SIDELOADED_PKGS[@]}"; do
+        ((idx++))
+        if echo "$FINAL_INSTALLED" | grep -qx "$p"; then
+            printf "[x] %2d. %-42s -> CLONED & INSTALLED ON DEVICE B\n" "$idx" "$p"
+        else
+            printf "[ ] %2d. %-42s -> NOT INSTALLED\n" "$idx" "$p"
+        fi
+    done
+    echo ""
+    echo "=============================================================================="
+} > "$REPORT_FILE"
+log_ok "Saved verification checklist report to: \"${REPORT_FILE}\" (${CONFIRMED_APPS}/${TOTAL_MANIFEST_APPS} confirmed)"
+
+# ------------------------------------------------------------------------------
 # Summary
 # ------------------------------------------------------------------------------
 echo -e "\n${BOLD}${GREEN}============================================================${NC}"

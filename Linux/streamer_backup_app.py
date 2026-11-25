@@ -92,6 +92,57 @@ KNOWN_PLAYSTORE_PACKAGES = {
     "tv.wuaki.apptv",
 }
 
+KNOWN_APP_NAMES = {
+    "air.com.vudu.air.DownloaderTablet": "Fandango at Home (Vudu)",
+    "ar.tvplayer.tv": "TiviMate IPTV Player",
+    "cm.aptoidetv.pt": "Aptoide TV",
+    "com.amazon.amazonvideo.livingroom": "Amazon Prime Video",
+    "com.angel.tv": "Angel Studios",
+    "com.apple.atve.androidtv.appletv": "Apple TV",
+    "com.cbs.ott": "Paramount+",
+    "com.disney.disneyplus": "Disney+",
+    "com.esaba.downloader": "Downloader by AFTVnews",
+    "com.espn.score_center": "ESPN",
+    "com.fox.foxone": "FOX Sports / FOX One",
+    "com.google.android.youtube.tv": "YouTube (Android TV)",
+    "com.hulu.livingroomplus": "Hulu",
+    "com.kanopy.tvapp": "Kanopy",
+    "com.mixplorer.silver": "MiXplorer Silver File Manager",
+    "com.moviesanywhere.goo": "Movies Anywhere",
+    "com.nbcuni.nbc.androidtv": "NBC",
+    "com.netflix.ninja": "Netflix",
+    "com.nuvio.tv": "Nuvio TV",
+    "com.peacocktv.peacockandroid": "Peacock TV",
+    "com.phlox.tvwebbrowser": "TV Bro Web Browser",
+    "com.plexapp.android": "Plex",
+    "com.roku.web.trc": "The Roku Channel",
+    "com.sling": "Sling TV",
+    "com.spectrum.stva.androidtv": "Spectrum TV",
+    "com.spocky.projengmenu": "Projectivy Launcher",
+    "com.stremio.one": "Stremio",
+    "com.surfshark.vpnclient.android": "Surfshark VPN",
+    "com.tduk.appklr": "TDUK App Killer",
+    "com.tduk.cacheclean": "TDUK Cache Cleaner",
+    "com.truthsocial.android.tv.tplus": "Truth+",
+    "com.tubitv": "Tubi TV",
+    "com.viki.android": "Rakuten Viki",
+    "com.wbd.stream": "Max (HBO Max)",
+    "com.zdf.android.mediathek": "ZDFmediathek",
+    "de.eye_interactive.atvl.playstore": "ATV Launcher Pro",
+    "de.fcbayern.android": "FC Bayern TV",
+    "de.swr.avp.ard.tv": "ARD Mediathek",
+    "dev.projectivy.blueprint.app": "Projectivy Icon Pack / Blueprint",
+    "dev.vodik7.tvquickactions": "tvQuickActions Pro",
+    "org.videolan.vlc": "VLC Media Player",
+    "pl.solidexplorer2": "Solid Explorer File Manager",
+    "tv.pluto.android": "Pluto TV",
+    "tv.wuaki.apptv": "Rakuten TV",
+}
+
+
+def get_friendly_app_name(pkg: str) -> str:
+    return KNOWN_APP_NAMES.get(pkg, pkg)
+
 
 def normalize_target(raw_ip: str) -> str:
     raw = raw_ip.strip()
@@ -799,6 +850,133 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
                 timeout=15,
             )
 
+    def write_backup_manifest_checklist(
+        self,
+        bdir: Path,
+        source_target: str,
+        model: str,
+        ver: str,
+        ts: str,
+        playstore_pkgs: list[str],
+        sideloaded_pkgs: list[str],
+    ):
+        try:
+            total = len(playstore_pkgs) + len(sideloaded_pkgs)
+            lines = [
+                "==============================================================================",
+                "  ANDROID / GOOGLE TV APP MANIFEST & DEVICE-A -> DEVICE-B CHECKLIST",
+                "==============================================================================",
+                f"Backup Timestamp     : {ts}",
+                f"Source Device (A)    : {model} (Android {ver}) @ {source_target}",
+                f"Total 3rd-Party Apps : {total} ({len(playstore_pkgs)} Play Store + {len(sideloaded_pkgs)} Sideloaded)",
+                "==============================================================================",
+                "INSTRUCTIONS FOR TARGET DEVICE (B):",
+                "  1. Complete the initial Android/Google TV setup on Device B and allow it",
+                "     to install your desired apps when prompted during setup.",
+                "  2. Run 'Restore to Target TV' in the Backup & Restore app.",
+                "  3. Use the checkboxes [ ] below (or check APP_RESTORE_VERIFICATION_REPORT.txt",
+                "     after restore) to verify every app from Device A is installed on Device B.",
+                "==============================================================================",
+                "",
+                f"--- SECTION 1: GOOGLE PLAY STORE APPS ({len(playstore_pkgs)}) ---",
+                "(Installed fresh from Google Play on Device B to match its Android SDK & CPU)",
+                "",
+            ]
+            for i, pkg in enumerate(playstore_pkgs, start=1):
+                lines.append(f"[ ] {i:2d}. {get_friendly_app_name(pkg):<36} ({pkg})")
+            lines.extend([
+                "",
+                f"--- SECTION 2: SIDELOADED APPS ({len(sideloaded_pkgs)}) ---",
+                "(Cloned automatically via ADB from apks/<package>/ during Restore)",
+                "",
+            ])
+            for i, pkg in enumerate(sideloaded_pkgs, start=1):
+                lines.append(f"[ ] {i:2d}. {get_friendly_app_name(pkg):<36} ({pkg})")
+            lines.extend([
+                "",
+                "==============================================================================",
+                "",
+            ])
+            checklist_path = bdir / "APP_MANIFEST_CHECKLIST.txt"
+            checklist_path.write_text("\n".join(lines), encoding="utf-8")
+            self.log(f"[OK] Created printable user checklist: {checklist_path}")
+        except Exception as e:
+            self.log(f"[WARN] Could not write APP_MANIFEST_CHECKLIST.txt: {e}")
+
+    def write_restore_verification_report(
+        self,
+        bdir: Path,
+        target_addr: str,
+        playstore_pkgs: list[str],
+        sideloaded_pkgs: list[str],
+        status_notes: dict[str, str],
+    ):
+        try:
+            model = self.adb_out(target_addr, ["shell", "getprop", "ro.product.model"]).strip() or "Unknown"
+            ver = self.adb_out(target_addr, ["shell", "getprop", "ro.build.version.release"]).strip() or "Unknown"
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            final_installed = self.get_installed_packages_on_device(target_addr)
+            total_apps = len(playstore_pkgs) + len(sideloaded_pkgs)
+            confirmed = sum(1 for p in playstore_pkgs if p in final_installed) + sum(
+                1 for p in sideloaded_pkgs if p in final_installed
+            )
+
+            lines = [
+                "==============================================================================",
+                "  DEVICE-A -> DEVICE-B APP RESTORE VERIFICATION REPORT & CHECKLIST",
+                "==============================================================================",
+                f"Restore Timestamp    : {ts}",
+                f"Target Device (B)    : {model} (Android {ver}) @ {target_addr}",
+                f"Verification Summary : {confirmed} / {total_apps} app(s) confirmed installed on Device B",
+                "                       (Note: Play Store apps queued in background may still be downloading)",
+                "==============================================================================",
+                "LEGEND:",
+                "  [x] = Confirmed installed on Device B",
+                "  [~] = Opened/Queued in Google Play on Device B (check TV download queue)",
+                "  [ ] = Not installed / Skipped / Failed",
+                "==============================================================================",
+                "",
+                f"--- SECTION 1: GOOGLE PLAY STORE APPS ({len(playstore_pkgs)}) ---",
+                "",
+            ]
+            for i, pkg in enumerate(playstore_pkgs, start=1):
+                is_inst = pkg in final_installed
+                note = status_notes.get(pkg, "")
+                box = "[x]" if is_inst else ("[~]" if "queued" in note.lower() else "[ ]")
+                st_text = (note or "INSTALLED ON DEVICE B") if is_inst else (note or "NOT INSTALLED")
+                lines.append(f"{box} {i:2d}. {get_friendly_app_name(pkg):<34} ({pkg}) -> {st_text}")
+
+            lines.extend([
+                "",
+                f"--- SECTION 2: SIDELOADED APPS ({len(sideloaded_pkgs)}) ---",
+                "",
+            ])
+            for i, pkg in enumerate(sideloaded_pkgs, start=1):
+                is_inst = pkg in final_installed
+                note = status_notes.get(pkg, "")
+                box = "[x]" if is_inst else "[ ]"
+                st_text = (note or "CLONED & INSTALLED ON DEVICE B") if is_inst else (note or "NOT INSTALLED")
+                lines.append(f"{box} {i:2d}. {get_friendly_app_name(pkg):<34} ({pkg}) -> {st_text}")
+
+            lines.extend([
+                "",
+                "==============================================================================",
+                "",
+            ])
+            report_path = bdir / "APP_RESTORE_VERIFICATION_REPORT.txt"
+            report_path.write_text("\n".join(lines), encoding="utf-8")
+            if not (bdir / "APP_MANIFEST_CHECKLIST.txt").exists():
+                self.write_backup_manifest_checklist(
+                    bdir, "Backup Folder", "Source TV", "?", ts, playstore_pkgs, sideloaded_pkgs
+                )
+            self.log("==========================================================")
+            self.log(f"[OK] Verification Checklist saved to: {report_path}")
+            self.log(f"     ({confirmed}/{total_apps} apps confirmed installed on Target TV)")
+            self.log("==========================================================")
+        except Exception as e:
+            self.log(f"[WARN] Could not write APP_RESTORE_VERIFICATION_REPORT.txt: {e}")
+
     # --------------------------------------------------------------------------
     # ADB Helpers
     # --------------------------------------------------------------------------
@@ -952,6 +1130,8 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
                 "\n".join(installer_lines) + ("\n" if installer_lines else ""), encoding="utf-8"
             )
 
+            self.write_backup_manifest_checklist(bdir, target, model, ver, ts, playstore_pkgs, sideloaded_pkgs)
+
             self.log(
                 f"Found {len(pkgs)} 3rd-party app(s): {len(playstore_pkgs)} Play Store app(s) (manifest), "
                 f"{len(sideloaded_pkgs)} Sideloaded app(s) (APK clone)."
@@ -1101,8 +1281,10 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
                     self.log(f"[INFO] {local_src} is empty or not present; skipping.")
 
         # 2. Restore Sideloaded APKs via ADB & Install Play Store Apps Fresh from Google Play (Mode A)
+        playstore_pkgs, sideloaded_pkgs = self.load_package_lists_for_restore(bdir)
+        restore_status_notes: dict[str, str] = {}
+
         if not self.cancel_requested and self.chk_apks.get_active():
-            playstore_pkgs, sideloaded_pkgs = self.load_package_lists_for_restore(bdir)
             self.log(
                 f"Manifest Summary: {len(sideloaded_pkgs)} Sideloaded app(s) to clone via ADB, "
                 f"{len(playstore_pkgs)} Play Store app(s) to verify/install via Google Play."
@@ -1116,10 +1298,12 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
                     break
                 pkg_dir = apks_dir / pkg_name
                 if not pkg_dir.exists():
+                    restore_status_notes[pkg_name] = "SKIPPED (APK folder missing in backup)"
                     self.log(f"  [WARN] Sideloaded APK folder missing for {pkg_name}, skipping.")
                     continue
                 apk_files = sorted([str(f) for f in pkg_dir.glob("*.apk")])
                 if not apk_files:
+                    restore_status_notes[pkg_name] = "SKIPPED (No APK files in folder)"
                     continue
 
                 sideload_attempted += 1
@@ -1130,14 +1314,17 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
                 code, out = self.adb(target, ["install-multiple", "-r", "-g"] + apk_files, timeout=300)
                 if code == 0:
                     sideload_installed += 1
+                    restore_status_notes[pkg_name] = "CLONED & INSTALLED VIA ADB"
                     self.log(f"  [OK] Cloned sideloaded app: {pkg_name}")
                 else:
                     self.log(f"  [WARN] Retrying {pkg_name} without -g...")
                     code2, out2 = self.adb(target, ["install-multiple", "-r"] + apk_files, timeout=300)
                     if code2 == 0:
                         sideload_installed += 1
+                        restore_status_notes[pkg_name] = "CLONED & INSTALLED VIA ADB (without -g)"
                         self.log(f"  [OK] Cloned sideloaded app: {pkg_name} (without -g)")
                     else:
+                        restore_status_notes[pkg_name] = f"FAILED ADB CLONE ({out2.strip()})"
                         self.log(f"  [ERROR] Failed to clone sideloaded app {pkg_name}: {out2.strip()}")
             self.log(f"[OK] Sideloaded APK cloning finished: {sideload_installed}/{sideload_attempted} succeeded.")
 
@@ -1153,6 +1340,7 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
                 for pkg in playstore_pkgs:
                     if pkg in currently_installed:
                         already_installed_play += 1
+                        restore_status_notes[pkg] = "ALREADY INSTALLED ON DEVICE B (Setup / Pre-installed)"
                     elif pkg != PROJECTIVY_PKG:
                         missing_play_pkgs.append(pkg)
 
@@ -1170,35 +1358,41 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
                         if self.cancel_requested:
                             break
                         pkg = missing_play_pkgs[i]
+                        friendly = get_friendly_app_name(pkg)
                         currently_installed = self.get_installed_packages_on_device(target)
                         if pkg in currently_installed:
                             play_installed_count += 1
-                            self.log(f"[Play Store {i+1}/{len(missing_play_pkgs)}] {pkg} is now installed!")
+                            restore_status_notes[pkg] = "INSTALLED FROM GOOGLE PLAY ON DEVICE B"
+                            self.log(f"[Play Store {i+1}/{len(missing_play_pkgs)}] {friendly} ({pkg}) is now installed!")
                             i += 1
                             continue
 
                         frac = 0.35 + (0.25 * ((i + 1) / max(1, len(missing_play_pkgs))))
                         self.set_progress(
-                            frac, f"[Play Store {i+1}/{len(missing_play_pkgs)}] Opening {pkg} on TV Play Store..."
+                            frac, f"[Play Store {i+1}/{len(missing_play_pkgs)}] Opening {friendly} on TV Play Store..."
                         )
                         self.log(
-                            f"[Play Store {i+1}/{len(missing_play_pkgs)}] Opening Google Play Store on TV for: {pkg}"
+                            f"[Play Store {i+1}/{len(missing_play_pkgs)}] Opening Google Play Store on TV for: {friendly} ({pkg})"
                         )
                         self.open_playstore_for_package(target, pkg)
 
-                        choice = self.ask_playstore_dialog_sync(pkg, i + 1, len(missing_play_pkgs))
+                        choice = self.ask_playstore_dialog_sync(f"{friendly} ({pkg})", i + 1, len(missing_play_pkgs))
                         if choice == "reopen":
                             continue
                         elif choice == "skip_all":
+                            for rem_pkg in missing_play_pkgs[i:]:
+                                restore_status_notes.setdefault(rem_pkg, "SKIPPED BY USER DURING PLAY STORE QUEUE")
                             self.log("[INFO] Skipping remaining Play Store manifest apps at user request.")
                             break
 
                         currently_installed = self.get_installed_packages_on_device(target)
                         if pkg in currently_installed:
                             play_installed_count += 1
-                            self.log(f"  [OK] Confirmed installed: {pkg}")
+                            restore_status_notes[pkg] = "INSTALLED FROM GOOGLE PLAY ON DEVICE B"
+                            self.log(f"  [OK] Confirmed installed: {friendly} ({pkg})")
                         else:
-                            self.log(f"  [INFO] Queued/proceeding to next app: {pkg}")
+                            restore_status_notes[pkg] = "QUEUED IN GOOGLE PLAY ON DEVICE B (Verify download on TV)"
+                            self.log(f"  [INFO] Queued/proceeding to next app: {friendly} ({pkg})")
                         i += 1
 
                     self.log(
@@ -1306,6 +1500,10 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
         if not self.cancel_requested and self.chk_projectivy.get_active():
             self.set_progress(0.96, "Restoring Projectivy layout, app groupings & button colors...")
             self.push_and_import_projectivy_backups(target, bdir)
+
+        # 7. Write Final Device-A -> Device-B Verification Checklist Report
+        if not self.cancel_requested and (playstore_pkgs or sideloaded_pkgs):
+            self.write_restore_verification_report(bdir, target, playstore_pkgs, sideloaded_pkgs, restore_status_notes)
 
         if self.cancel_requested:
             self.set_progress(0.0, "Restore cancelled")

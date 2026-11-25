@@ -206,6 +206,46 @@ done
 TOTAL_PKGS=${#THIRD_PARTY_PKGS[@]}
 log_info "Found ${BOLD}${TOTAL_PKGS}${NC} 3rd-party package(s): ${BOLD}${#PLAYSTORE_PKGS[@]}${NC} Play Store (manifest), ${BOLD}${#SIDELOADED_PKGS[@]}${NC} Sideloaded (APK clone)."
 
+# Generate human-readable APP_MANIFEST_CHECKLIST.txt for checking off apps on Device B
+CHECKLIST_FILE="${BACKUP_ROOT}/APP_MANIFEST_CHECKLIST.txt"
+{
+    echo "=============================================================================="
+    echo "  ANDROID / GOOGLE TV APP MANIFEST & DEVICE-A -> DEVICE-B CHECKLIST"
+    echo "=============================================================================="
+    echo "Backup Timestamp     : ${TIMESTAMP}"
+    echo "Source Device (A)    : ${DEVICE_MODEL:-Unknown} (Android ${ANDROID_VER:-Unknown}) @ ${TARGET_ADDR}"
+    echo "Total 3rd-Party Apps : ${TOTAL_PKGS} (${#PLAYSTORE_PKGS[@]} Play Store + ${#SIDELOADED_PKGS[@]} Sideloaded)"
+    echo "=============================================================================="
+    echo "INSTRUCTIONS FOR TARGET DEVICE (B):"
+    echo "  1. Complete the initial Android/Google TV setup on Device B and allow it"
+    echo "     to install your desired apps when prompted during setup."
+    echo "  2. Run 'Restore to Target TV' (or restore_tv.sh)."
+    echo "  3. Use the checkboxes [ ] below (or check APP_RESTORE_VERIFICATION_REPORT.txt"
+    echo "     after restore) to verify every app from Device A is installed on Device B."
+    echo "=============================================================================="
+    echo ""
+    echo "--- SECTION 1: GOOGLE PLAY STORE APPS (${#PLAYSTORE_PKGS[@]}) ---"
+    echo "(Installed fresh from Google Play on Device B to match its Android SDK & CPU)"
+    echo ""
+    idx=0
+    for p in "${PLAYSTORE_PKGS[@]}"; do
+        ((idx++))
+        printf "[ ] %2d. %s\n" "$idx" "$p"
+    done
+    echo ""
+    echo "--- SECTION 2: SIDELOADED APPS (${#SIDELOADED_PKGS[@]}) ---"
+    echo "(Cloned automatically via ADB from apks/<package>/ during Restore)"
+    echo ""
+    idx=0
+    for p in "${SIDELOADED_PKGS[@]}"; do
+        ((idx++))
+        printf "[ ] %2d. %s\n" "$idx" "$p"
+    done
+    echo ""
+    echo "=============================================================================="
+} > "$CHECKLIST_FILE"
+log_ok "Created user checklist: \"${CHECKLIST_FILE}\""
+
 PKG_INDEX=0
 CLONED_SIDELOAD_PKGS=0
 

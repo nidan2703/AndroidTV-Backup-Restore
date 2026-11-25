@@ -2,6 +2,10 @@
 
 Zero-dependency native Windows 10 / 11 desktop application (`AndroidTV_Streamer_Backup.exe`) to back up, restore, and clone Android TV / Google TV streaming boxes over wireless ADB.
 
+> [!IMPORTANT]
+> **Download the Entire Windows Folder (`< 75 KB`)**
+> Do **not** download `AndroidTV_Streamer_Backup.exe` or `Launch_Windows_App.bat` individually by itself. Instead, download **[`AndroidTV_Streamer_Backup_Windows.zip`](../AndroidTV_Streamer_Backup_Windows.zip)** from the main repository page (or download the full repo via **`<> Code` → `Download ZIP`**) and **extract the entire folder** so all companion files stay together.
+
 ---
 
 ## ⚠️ Important: Target TV Preparation Before Running a Restore
@@ -20,9 +24,10 @@ When setting up a brand-new or factory-reset Android TV / Google TV device (such
 
 ## Quick Start (Windows 10 / 11)
 
-1. Double-click **`AndroidTV_Streamer_Backup.exe`** (or **`Launch_Windows_App.bat`**).
+1. Download and extract **[`AndroidTV_Streamer_Backup_Windows.zip`](../AndroidTV_Streamer_Backup_Windows.zip)** (or the entire `Windows/` folder).
+2. Inside the extracted folder, double-click **`AndroidTV_Streamer_Backup.exe`** (or **`Launch_Windows_App.bat`**).
    - **No Python, no .NET SDK, and no runtime installers required** — built on native Windows `.NET Framework 4.8`, which is pre-installed on every Windows 10 and Windows 11 PC.
-2. If `adb.exe` is not already installed on your PC, click the **"Download ADB"** button in the top-right corner of the app to automatically download and extract Google's official Android Platform-Tools.
+3. If `adb.exe` is not already installed on your PC, click the **"Download ADB"** button in the top-right corner of the app to automatically download and extract Google's official Android Platform-Tools.
 
 ---
 
