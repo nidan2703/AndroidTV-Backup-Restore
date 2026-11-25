@@ -2,7 +2,7 @@
 # ==============================================================================
 # Zorin OS Android / Google TV Backup Utility (backup_tv.sh)
 # Default Target: 192.168.4.64:5555
-# Backup Destination: "/home/achim/Android Streamer Backup"
+# Backup Destination: "${HOME}/Android Streamer Backup"
 # ==============================================================================
 
 set -u
@@ -10,6 +10,7 @@ set -u
 DEFAULT_IP="192.168.4.64"
 DEFAULT_PORT="5555"
 BACKUP_ROOT="${HOME}/Android Streamer Backup"
+PLAYSTORE_INSTALLER="com.android.vending"
 
 # Colors for terminal output
 RED='\033[0;31m'
@@ -54,7 +55,6 @@ prompt_for_ip() {
             input_ip="${USER_INPUT:-${DEFAULT_IP}:${DEFAULT_PORT}}"
         fi
 
-        # Strip whitespace
         input_ip="$(echo "$input_ip" | tr -d '[:space:]')"
 
         if [[ "$input_ip" == *:* ]]; then
@@ -63,7 +63,6 @@ prompt_for_ip() {
             TARGET_ADDR="${input_ip}:${DEFAULT_PORT}"
         fi
 
-        # Basic format check (IPv4:PORT or hostname:PORT)
         if [[ "$TARGET_ADDR" =~ ^[a-zA-Z0-9.-]+:[0-9]+$ ]]; then
             break
         else
@@ -143,7 +142,7 @@ ADB_CMD=(adb -s "$TARGET_ADDR")
 # ------------------------------------------------------------------------------
 # 4. Prepare Backup Directory Structure
 # ------------------------------------------------------------------------------
-log_step "Step 3: Preparing backup directories"
+log_step "Step 4: Preparing backup directories"
 APKS_DIR="${BACKUP_ROOT}/apks"
 PERMS_DIR="${BACKUP_ROOT}/permissions"
 SDCARD_DIR="${BACKUP_ROOT}/sdcard"
@@ -167,62 +166,89 @@ log_ok "Backup destination ready: \"${BACKUP_ROOT}\""
 log_info "Detected Device: ${BOLD}${DEVICE_MODEL:-Unknown}${NC} (Android ${ANDROID_VER:-Unknown})"
 
 # ------------------------------------------------------------------------------
-# 5. Pull All 3rd-Party APKs & Split APKs (pm path + pull) & Export Permissions
+# 5. Classify Play Store Manifest vs. Sideloaded APKs & Export Permissions
 # ------------------------------------------------------------------------------
-log_step "Step 4: Pulling 3rd-party APKs (including split APKs) & granted runtime permissions"
+log_step "Step 5: Classifying Play Store manifest vs. Sideloaded APKs & exporting runtime permissions"
 
-mapfile -t THIRD_PARTY_PKGS < <("${ADB_CMD[@]}" shell pm list packages -3 2>/dev/null | tr -d '\r' | sed 's/^package://' | grep -v '^[[:space:]]*$' | sort)
-
-TOTAL_PKGS=${#THIRD_PARTY_PKGS[@]}
-log_info "Found ${BOLD}${TOTAL_PKGS}${NC} 3rd-party package(s)."
-
-printf "%s\n" "${THIRD_PARTY_PKGS[@]}" > "${PACKAGES_DIR}/third_party_packages.txt"
+: > "${PACKAGES_DIR}/third_party_packages.txt"
+: > "${PACKAGES_DIR}/playstore_packages.txt"
+: > "${PACKAGES_DIR}/sideloaded_packages.txt"
+: > "${PACKAGES_DIR}/package_installers.txt"
 : > "${PERMS_DIR}/granted_permissions.txt"
 
+mapfile -t RAW_PKG_INSTALLERS < <("${ADB_CMD[@]}" shell pm list packages -3 -i 2>/dev/null | tr -d '\r' | grep -v '^[[:space:]]*$' | sort)
+
+THIRD_PARTY_PKGS=()
+PLAYSTORE_PKGS=()
+SIDELOADED_PKGS=()
+declare -A IS_SIDELOADED_MAP=()
+
+for line in "${RAW_PKG_INSTALLERS[@]}"; do
+    pkg=$(echo "$line" | sed -E 's/^package:([^[:space:]]+).*/\1/')
+    inst=$(echo "$line" | sed -nE 's/.*installer=([^[:space:]]+).*/\1/p')
+    [[ -z "$inst" ]] && inst="null"
+    [[ -z "$pkg" ]] && continue
+
+    THIRD_PARTY_PKGS+=("$pkg")
+    echo "${pkg} ${inst}" >> "${PACKAGES_DIR}/package_installers.txt"
+    echo "${pkg}" >> "${PACKAGES_DIR}/third_party_packages.txt"
+
+    if [[ "${inst,,}" == "${PLAYSTORE_INSTALLER}" ]]; then
+        PLAYSTORE_PKGS+=("$pkg")
+        echo "${pkg}" >> "${PACKAGES_DIR}/playstore_packages.txt"
+    else
+        SIDELOADED_PKGS+=("$pkg")
+        IS_SIDELOADED_MAP["$pkg"]=1
+        echo "${pkg}" >> "${PACKAGES_DIR}/sideloaded_packages.txt"
+    fi
+done
+
+TOTAL_PKGS=${#THIRD_PARTY_PKGS[@]}
+log_info "Found ${BOLD}${TOTAL_PKGS}${NC} 3rd-party package(s): ${BOLD}${#PLAYSTORE_PKGS[@]}${NC} Play Store (manifest), ${BOLD}${#SIDELOADED_PKGS[@]}${NC} Sideloaded (APK clone)."
+
 PKG_INDEX=0
-SUCCESS_PKGS=0
+CLONED_SIDELOAD_PKGS=0
 
 for pkg in "${THIRD_PARTY_PKGS[@]}"; do
     ((PKG_INDEX++))
-    echo -e "\n${BOLD}[${PKG_INDEX}/${TOTAL_PKGS}] Package: ${pkg}${NC}"
 
-    PKG_APK_DIR="${APKS_DIR}/${pkg}"
-    mkdir -p "$PKG_APK_DIR"
-    # Clean old APKs in this package directory to prevent stale split mixing
-    rm -f "${PKG_APK_DIR}"/*.apk
+    if [[ -n "${IS_SIDELOADED_MAP[$pkg]:-}" ]]; then
+        echo -e "\n${BOLD}[${PKG_INDEX}/${TOTAL_PKGS}] Cloning Sideloaded App: ${pkg}${NC}"
+        PKG_APK_DIR="${APKS_DIR}/${pkg}"
+        mkdir -p "$PKG_APK_DIR"
+        rm -f "${PKG_APK_DIR}"/*.apk
 
-    mapfile -t APK_PATHS < <("${ADB_CMD[@]}" shell pm path "$pkg" 2>/dev/null | tr -d '\r' | sed 's/^package://' | grep -v '^[[:space:]]*$')
+        mapfile -t APK_PATHS < <("${ADB_CMD[@]}" shell pm path "$pkg" 2>/dev/null | tr -d '\r' | sed 's/^package://' | grep -v '^[[:space:]]*$')
 
-    if (( ${#APK_PATHS[@]} == 0 )); then
-        log_warn "Could not resolve APK path(s) for ${pkg}, skipping."
-        continue
-    fi
+        if (( ${#APK_PATHS[@]} > 0 )); then
+            PULL_OK=true
+            SPLIT_COUNT=0
+            for remote_apk in "${APK_PATHS[@]}"; do
+                ((SPLIT_COUNT++))
+                apk_basename=$(basename "$remote_apk")
+                local_apk="${PKG_APK_DIR}/${apk_basename}"
+                if [[ -e "$local_apk" ]]; then
+                    local_apk="${PKG_APK_DIR}/${SPLIT_COUNT}_${apk_basename}"
+                fi
 
-    PULL_OK=true
-    SPLIT_COUNT=0
-    for remote_apk in "${APK_PATHS[@]}"; do
-        ((SPLIT_COUNT++))
-        apk_basename=$(basename "$remote_apk")
-        # Prefix with index if multiple splits share a generic name
-        local_apk="${PKG_APK_DIR}/${apk_basename}"
-        if [[ -e "$local_apk" ]]; then
-            local_apk="${PKG_APK_DIR}/${SPLIT_COUNT}_${apk_basename}"
+                log_info "  Pulling (${SPLIT_COUNT}/${#APK_PATHS[@]}): ${apk_basename}"
+                if ! "${ADB_CMD[@]}" pull "$remote_apk" "$local_apk" >/dev/null; then
+                    log_warn "  Failed to pull ${remote_apk}"
+                    PULL_OK=false
+                fi
+            done
+            if [[ "$PULL_OK" == true ]]; then
+                ((CLONED_SIDELOAD_PKGS++))
+                log_ok "  Saved ${#APK_PATHS[@]} APK file(s) for sideloaded app ${pkg}"
+            fi
+        else
+            log_warn "  Could not resolve APK path(s) for ${pkg}, skipping APK pull."
         fi
-
-        log_info "  Pulling (${SPLIT_COUNT}/${#APK_PATHS[@]}): ${apk_basename}"
-        if ! "${ADB_CMD[@]}" pull "$remote_apk" "$local_apk" >/dev/null; then
-            log_warn "  Failed to pull ${remote_apk}"
-            PULL_OK=false
-        fi
-    done
-
-    if [[ "$PULL_OK" == true ]]; then
-        ((SUCCESS_PKGS++))
-        log_ok "  Saved ${#APK_PATHS[@]} APK file(s) for ${pkg}"
+    else
+        log_info "[${PKG_INDEX}/${TOTAL_PKGS}] Recorded Play Store app in manifest: ${pkg}"
     fi
 
     # Export granted runtime permissions for this package
-    # Parses 'dumpsys package <pkg>' lines containing 'granted=true' under runtime/install permissions
     mapfile -t GRANTED_PERMS < <(
         "${ADB_CMD[@]}" shell dumpsys package "$pkg" 2>/dev/null | tr -d '\r' | \
         grep "granted=true" | \
@@ -235,11 +261,11 @@ for pkg in "${THIRD_PARTY_PKGS[@]}"; do
         for perm in "${GRANTED_PERMS[@]}"; do
             echo "${pkg} ${perm}" >> "${PERMS_DIR}/granted_permissions.txt"
         done
-        log_info "  Exported ${#GRANTED_PERMS[@]} granted Android permission(s)."
+        log_info "  Exported ${#GRANTED_PERMS[@]} granted Android permission(s) for ${pkg}."
     fi
 done
 
-log_ok "Successfully backed up ${SUCCESS_PKGS}/${TOTAL_PKGS} 3rd-party app(s)."
+log_ok "Saved ${#PLAYSTORE_PKGS[@]} Play Store app(s) to manifest and cloned ${CLONED_SIDELOAD_PKGS}/${#SIDELOADED_PKGS[@]} sideloaded app(s)."
 
 # ------------------------------------------------------------------------------
 # 6. Pull /sdcard/Download, /sdcard/Pictures & Projectivy .plbackup files
@@ -284,7 +310,7 @@ done
 # ------------------------------------------------------------------------------
 # 7. Dump System, Secure, and Global Settings
 # ------------------------------------------------------------------------------
-log_step "Step 6: Dumping system, secure, and global settings"
+log_step "Step 7: Dumping system, secure, and global settings"
 
 for namespace in system secure global; do
     OUT_FILE="${SETTINGS_DIR}/${namespace}.txt"
@@ -300,7 +326,7 @@ done
 # ------------------------------------------------------------------------------
 # 8. Save Disabled Packages List
 # ------------------------------------------------------------------------------
-log_step "Step 7: Saving disabled packages list"
+log_step "Step 8: Saving disabled packages list"
 
 DISABLED_FILE="${PACKAGES_DIR}/disabled_packages.txt"
 "${ADB_CMD[@]}" shell pm list packages -d 2>/dev/null | tr -d '\r' | sed 's/^package://' | grep -v '^[[:space:]]*$' | sort > "$DISABLED_FILE"
@@ -314,7 +340,8 @@ echo -e "\n${BOLD}${GREEN}======================================================
 echo -e "${BOLD}${GREEN}   BACKUP COMPLETE!                                         ${NC}"
 echo -e "${BOLD}${GREEN}============================================================${NC}"
 echo -e "Backup Location   : ${BOLD}${BACKUP_ROOT}${NC}"
-echo -e "Apps Backed Up    : ${BOLD}${SUCCESS_PKGS} / ${TOTAL_PKGS}${NC}"
+echo -e "Play Store Apps   : ${BOLD}${#PLAYSTORE_PKGS[@]} (saved to manifest)${NC}"
+echo -e "Sideloaded Apps   : ${BOLD}${CLONED_SIDELOAD_PKGS} / ${#SIDELOADED_PKGS[@]} (APKs cloned)${NC}"
 echo -e "Disabled Packages : ${BOLD}${DISABLED_COUNT}${NC}"
 echo -e "Media & Backups   : ${BOLD}${SDCARD_DIR}/Download${NC} & ${BOLD}${SDCARD_DIR}/Pictures${NC}"
 echo -e "Settings Dumped   : ${BOLD}system.txt, secure.txt, global.txt${NC}"

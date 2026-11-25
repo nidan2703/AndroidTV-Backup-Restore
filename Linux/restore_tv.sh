@@ -2,7 +2,7 @@
 # ==============================================================================
 # Zorin OS Android / Google TV Restore Utility (restore_tv.sh)
 # Default Target: 192.168.4.64:5555
-# Backup Source:  "/home/achim/Android Streamer Backup"
+# Backup Source:  "${HOME}/Android Streamer Backup"
 # ==============================================================================
 
 set -u
@@ -12,6 +12,7 @@ DEFAULT_PORT="5555"
 BACKUP_ROOT="${HOME}/Android Streamer Backup"
 STOCK_LAUNCHER="com.google.android.apps.tv.launcherx"
 PROJECTIVY_PKG="com.spocky.projengmenu"
+PLAYSTORE_INSTALLER="com.android.vending"
 
 # Colors for terminal output
 RED='\033[0;31m'
@@ -69,7 +70,6 @@ prompt_for_ip() {
             input_ip="${USER_INPUT:-${DEFAULT_IP}:${DEFAULT_PORT}}"
         fi
 
-        # Strip whitespace
         input_ip="$(echo "$input_ip" | tr -d '[:space:]')"
 
         if [[ "$input_ip" == *:* ]]; then
@@ -78,7 +78,6 @@ prompt_for_ip() {
             TARGET_ADDR="${input_ip}:${DEFAULT_PORT}"
         fi
 
-        # Basic format check (IPv4:PORT or hostname:PORT)
         if [[ "$TARGET_ADDR" =~ ^[a-zA-Z0-9.-]+:[0-9]+$ ]]; then
             break
         else
@@ -164,7 +163,7 @@ PACKAGES_DIR="${BACKUP_ROOT}/packages"
 # ------------------------------------------------------------------------------
 # 4. Push /sdcard/Download & /sdcard/Pictures First
 # ------------------------------------------------------------------------------
-log_step "Step 3: Pushing /sdcard/Download & /sdcard/Pictures (Projectivy backups & wallpapers)"
+log_step "Step 4: Pushing /sdcard/Download & /sdcard/Pictures (Projectivy backups & wallpapers)"
 
 for folder in "Download" "Pictures"; do
     LOCAL_SRC="${SDCARD_DIR}/${folder}"
@@ -188,55 +187,133 @@ for folder in "Download" "Pictures"; do
 done
 
 # ------------------------------------------------------------------------------
-# 5. Batch Install APKs via install-multiple -r -g
+# 5. Clone Sideloaded APKs via ADB & Install Play Store Apps Fresh (Mode A)
 # ------------------------------------------------------------------------------
-log_step "Step 4: Batch installing 3rd-party APKs & split APKs (install-multiple -r -g)"
+log_step "Step 5: Cloning Sideloaded APKs & Installing Play Store Manifest Apps"
 
-INSTALLED_PKGS=0
-FAILED_PKGS=0
+PLAYSTORE_FILE="${PACKAGES_DIR}/playstore_packages.txt"
+SIDELOADED_FILE="${PACKAGES_DIR}/sideloaded_packages.txt"
 
-if [[ -d "$APKS_DIR" ]]; then
+PLAYSTORE_PKGS=()
+SIDELOADED_PKGS=()
+
+if [[ -f "$PLAYSTORE_FILE" || -f "$SIDELOADED_FILE" ]]; then
+    [[ -f "$PLAYSTORE_FILE" ]] && mapfile -t PLAYSTORE_PKGS < <(grep -v '^[[:space:]]*$' "$PLAYSTORE_FILE" | tr -d '\r')
+    [[ -f "$SIDELOADED_FILE" ]] && mapfile -t SIDELOADED_PKGS < <(grep -v '^[[:space:]]*$' "$SIDELOADED_FILE" | tr -d '\r')
+elif [[ -d "$APKS_DIR" ]]; then
+    log_info "Legacy backup detected (no playstore_packages.txt found). Classifying packages..."
     shopt -s nullglob
-    PKG_DIRS=("${APKS_DIR}"/*/)
-    TOTAL_PKG_DIRS=${#PKG_DIRS[@]}
-    PKG_IDX=0
-
-    for pkg_dir in "${PKG_DIRS[@]}"; do
-        ((PKG_IDX++))
+    for pkg_dir in "${APKS_DIR}"/*/; do
         pkg_name=$(basename "$pkg_dir")
         apk_files=("${pkg_dir}"*.apk)
-
-        if (( ${#apk_files[@]} == 0 )); then
-            log_warn "[${PKG_IDX}/${TOTAL_PKG_DIRS}] No APK files found in ${pkg_name}, skipping."
-            continue
-        fi
-
-        echo -e "\n${BOLD}[${PKG_IDX}/${TOTAL_PKG_DIRS}] Installing ${pkg_name} (${#apk_files[@]} APK file(s))...${NC}"
-        if "${ADB_CMD[@]}" install-multiple -r -g "${apk_files[@]}"; then
-            ((INSTALLED_PKGS++))
-            log_ok "Installed ${pkg_name}"
+        if (( ${#apk_files[@]} > 1 )); then
+            PLAYSTORE_PKGS+=("$pkg_name")
         else
-            log_warn "install-multiple -r -g failed for ${pkg_name}, retrying without -g..."
-            if "${ADB_CMD[@]}" install-multiple -r "${apk_files[@]}"; then
-                ((INSTALLED_PKGS++))
-                log_ok "Installed ${pkg_name} (without -g)"
-            else
-                ((FAILED_PKGS++))
-                log_err "Failed to install ${pkg_name}"
-            fi
+            SIDELOADED_PKGS+=("$pkg_name")
         fi
     done
     shopt -u nullglob
-else
-    log_warn "APKs directory \"${APKS_DIR}\" not found; skipping APK installation."
 fi
 
-log_ok "APK batch installation complete (${INSTALLED_PKGS} succeeded, ${FAILED_PKGS} failed)."
+log_info "Manifest Summary: ${BOLD}${#SIDELOADED_PKGS[@]}${NC} Sideloaded app(s) to clone via ADB, ${BOLD}${#PLAYSTORE_PKGS[@]}${NC} Play Store app(s) to verify/install via Google Play."
+
+# 5A. Clone Sideloaded APKs
+INSTALLED_SIDELOAD=0
+FAILED_SIDELOAD=0
+SIDELOAD_IDX=0
+
+shopt -s nullglob
+for pkg_name in "${SIDELOADED_PKGS[@]}"; do
+    ((SIDELOAD_IDX++))
+    pkg_dir="${APKS_DIR}/${pkg_name}"
+    apk_files=("${pkg_dir}"/*.apk)
+
+    if (( ${#apk_files[@]} == 0 )); then
+        log_warn "[Sideload ${SIDELOAD_IDX}/${#SIDELOADED_PKGS[@]}] No APK files found for ${pkg_name}, skipping."
+        continue
+    fi
+
+    echo -e "\n${BOLD}[Sideload ${SIDELOAD_IDX}/${#SIDELOADED_PKGS[@]}] Cloning ${pkg_name} (${#apk_files[@]} APK file(s))...${NC}"
+    if "${ADB_CMD[@]}" install-multiple -r -g "${apk_files[@]}"; then
+        ((INSTALLED_SIDELOAD++))
+        log_ok "Cloned sideloaded app: ${pkg_name}"
+    else
+        log_warn "install-multiple -r -g failed for ${pkg_name}, retrying without -g..."
+        if "${ADB_CMD[@]}" install-multiple -r "${apk_files[@]}"; then
+            ((INSTALLED_SIDELOAD++))
+            log_ok "Cloned sideloaded app: ${pkg_name} (without -g)"
+        else
+            ((FAILED_SIDELOAD++))
+            log_err "Failed to clone sideloaded app: ${pkg_name}"
+        fi
+    fi
+done
+shopt -u nullglob
+
+log_ok "Sideloaded APK cloning complete (${INSTALLED_SIDELOAD} succeeded, ${FAILED_SIDELOAD} failed)."
+
+# 5B. Play Store Manifest Queue (Mode A)
+if (( ${#PLAYSTORE_PKGS[@]} > 0 )); then
+    INSTALLED_NOW=$("${ADB_CMD[@]}" shell pm list packages 2>/dev/null | tr -d '\r' | sed 's/^package://')
+    MISSING_PLAY_PKGS=()
+    ALREADY_PLAY_CNT=0
+
+    # Put Projectivy first if missing
+    for pkg in "${PLAYSTORE_PKGS[@]}"; do
+        if [[ "$pkg" == "$PROJECTIVY_PKG" ]] && ! echo "$INSTALLED_NOW" | grep -qx "$PROJECTIVY_PKG"; then
+            MISSING_PLAY_PKGS+=("$PROJECTIVY_PKG")
+        fi
+    done
+
+    for pkg in "${PLAYSTORE_PKGS[@]}"; do
+        if echo "$INSTALLED_NOW" | grep -qx "$pkg"; then
+            ((ALREADY_PLAY_CNT++))
+        elif [[ "$pkg" != "$PROJECTIVY_PKG" ]]; then
+            MISSING_PLAY_PKGS+=("$pkg")
+        fi
+    done
+
+    log_info "Play Store Manifest Check: ${BOLD}${ALREADY_PLAY_CNT}${NC} already installed, ${BOLD}${#MISSING_PLAY_PKGS[@]}${NC} missing on Target TV."
+
+    if (( ${#MISSING_PLAY_PKGS[@]} > 0 )); then
+        echo -e "${YELLOW}------------------------------------------------------------${NC}"
+        echo -e "${BOLD}${YELLOW}PLAY STORE FRESH INSTALL QUEUE (${#MISSING_PLAY_PKGS[@]} app(s)):${NC}"
+        echo -e "Each missing Play Store app will open directly on your TV's Google Play Store"
+        echo -e "so the TV downloads the exact build for its Android SDK & CPU architecture."
+        echo -e "${YELLOW}------------------------------------------------------------${NC}"
+
+        P_IDX=0
+        while (( P_IDX < ${#MISSING_PLAY_PKGS[@]} )); do
+            pkg="${MISSING_PLAY_PKGS[$P_IDX]}"
+            DISP_NUM=$((P_IDX + 1))
+
+            INSTALLED_NOW=$("${ADB_CMD[@]}" shell pm list packages 2>/dev/null | tr -d '\r' | sed 's/^package://')
+            if echo "$INSTALLED_NOW" | grep -qx "$pkg"; then
+                log_ok "[Play Store ${DISP_NUM}/${#MISSING_PLAY_PKGS[@]}] ${pkg} is now installed!"
+                ((P_IDX++))
+                continue
+            fi
+
+            echo -e "\n${BOLD}[Play Store ${DISP_NUM}/${#MISSING_PLAY_PKGS[@]}] Opening Google Play Store on TV for: ${pkg}${NC}"
+            "${ADB_CMD[@]}" shell am start -a android.intent.action.VIEW -d "market://details?id=${pkg}" -p "${PLAYSTORE_INSTALLER}" >/dev/null 2>&1 || \
+            "${ADB_CMD[@]}" shell am start -a android.intent.action.VIEW -d "https://play.google.com/store/apps/details?id=${pkg}" >/dev/null 2>&1 || true
+
+            read -r -p "Press 'Install' on your TV remote, then press [Enter] for next app ([r] to re-open, [s] to skip remaining): " PLAY_CHOICE
+            if [[ "${PLAY_CHOICE:-}" =~ ^[Rr]$ ]]; then
+                continue
+            elif [[ "${PLAY_CHOICE:-}" =~ ^[Ss]$ ]]; then
+                log_info "Skipping remaining Play Store manifest apps."
+                break
+            fi
+            ((P_IDX++))
+        done
+    fi
+fi
 
 # ------------------------------------------------------------------------------
 # 6. Re-grant Runtime Permissions
 # ------------------------------------------------------------------------------
-log_step "Step 5: Re-granting exported runtime permissions"
+log_step "Step 6: Re-granting exported runtime permissions"
 
 GRANTED_COUNT=0
 PERM_LIST_FILE="${PERMS_DIR}/granted_permissions.txt"
@@ -244,7 +321,6 @@ PERM_LIST_FILE="${PERMS_DIR}/granted_permissions.txt"
 if [[ -f "$PERM_LIST_FILE" ]]; then
     while IFS=' ' read -r pkg perm; do
         [[ -z "$pkg" || -z "$perm" ]] && continue
-        # pm grant succeeds for changeable runtime permissions and quietly fails for fixed install permissions
         if "${ADB_CMD[@]}" shell pm grant "$pkg" "$perm" >/dev/null 2>&1; then
             ((GRANTED_COUNT++))
         fi
@@ -254,19 +330,11 @@ else
     log_warn "No permissions export file found at \"${PERM_LIST_FILE}\"."
 fi
 
-# Also grant Projectivy Accessibility service if present in backup settings
-if "${ADB_CMD[@]}" shell pm list packages 2>/dev/null | tr -d '\r' | grep -q "^package:${PROJECTIVY_PKG}$"; then
-    log_info "Projectivy Launcher (${PROJECTIVY_PKG}) detected on target device."
-fi
-
 # ------------------------------------------------------------------------------
 # 7. Apply Safe System, Secure, and Global Settings
-#    Filters out: android_id, bluetooth_address, wifi_on, device_name, boot_count
-#    and device-unique network/hardware identifiers
 # ------------------------------------------------------------------------------
-log_step "Step 6: Applying safe settings (filtering device-unique & risky keys)"
+log_step "Step 7: Applying safe settings (filtering device-unique & risky keys)"
 
-# Regex matching keys that must NOT be overwritten across boxes or reboots
 FILTER_REGEX='^(android_id|bluetooth_address|wifi_on|device_name|boot_count|bluetooth_name|bluetooth_addr_valid|adb_enabled|adb_wifi_enabled|development_settings_enabled|verifier_verify_adb_installs|network_scoring_provisioned|wifi_saved_state)$'
 
 apply_settings_file() {
@@ -284,15 +352,12 @@ apply_settings_file() {
     log_info "Applying safe '${namespace}' settings from ${file}..."
     while IFS='=' read -r key value; do
         [[ -z "$key" ]] && continue
-        # Skip multi-line artifacts or malformed keys
         if [[ ! "$key" =~ ^[a-zA-Z0-9_.:-]+$ ]]; then
             continue
         fi
-        # Skip null values
         if [[ "$value" == "null" || -z "$value" ]]; then
             continue
         fi
-        # Filter blocked device-specific / dangerous keys
         if [[ "$key" =~ $FILTER_REGEX ]]; then
             log_info "  [FILTERED] Skipping ${namespace}:${key}"
             ((skipped++))
@@ -314,12 +379,11 @@ done
 # ------------------------------------------------------------------------------
 # 8. Re-disable Stock Launcher (com.google.android.apps.tv.launcherx) & Bloatware
 # ------------------------------------------------------------------------------
-log_step "Step 7: Re-disabling stock launcher (${STOCK_LAUNCHER}) & disabled bloatware"
+log_step "Step 8: Re-disabling stock launcher (${STOCK_LAUNCHER}) & disabled bloatware"
 
 DISABLED_FILE="${PACKAGES_DIR}/disabled_packages.txt"
 declare -A TO_DISABLE_MAP=()
 
-# Load disabled packages from backup
 if [[ -f "$DISABLED_FILE" ]]; then
     while IFS= read -r pkg; do
         pkg=$(echo "$pkg" | tr -d '\r[:space:]')
@@ -327,13 +391,11 @@ if [[ -f "$DISABLED_FILE" ]]; then
     done < "$DISABLED_FILE"
 fi
 
-# Always ensure stock Google TV launcher is included for disablement
 TO_DISABLE_MAP["$STOCK_LAUNCHER"]=1
 
-# Safety check before disabling stock launcher: ensure an alternative launcher (e.g., Projectivy) is installed
 INSTALLED_ALL=$("${ADB_CMD[@]}" shell pm list packages 2>/dev/null | tr -d '\r' | sed 's/^package://')
 ALT_LAUNCHER_READY=false
-if echo "$INSTALLED_ALL" | grep -Eq '^(com\.spocky\.projengmenu|me\.efesser\.flauncher|ca\.dstudio\.atvlauncher|com\. Wolf\.Launcher)'; then
+if echo "$INSTALLED_ALL" | grep -Eq '^(com\.spocky\.projengmenu|me\.efesser\.flauncher|ca\.dstudio\.atvlauncher)'; then
     ALT_LAUNCHER_READY=true
 fi
 
@@ -344,8 +406,9 @@ for pkg in "${!TO_DISABLE_MAP[@]}"; do
         continue
     fi
 
-    if [[ "$pkg" == "$STOCK_LAUNCHER" && "$ALT_LAUNCHER_READY" == false ]]; then
-        log_warn "No 3rd-party launcher (e.g., Projectivy) detected! Disabling ${STOCK_LAUNCHER} anyway as requested, but verify a home app is installed."
+    if [[ ( "$pkg" == "$STOCK_LAUNCHER" || "$pkg" == "com.google.android.tvlauncher" ) && "$ALT_LAUNCHER_READY" == false ]]; then
+        log_warn "Projectivy is not installed yet; keeping stock launcher (${pkg}) enabled so the TV has a home screen."
+        continue
     fi
 
     log_info "Disabling package: ${pkg}"
@@ -357,12 +420,9 @@ for pkg in "${!TO_DISABLE_MAP[@]}"; do
     fi
 done
 
-# Also disable com.google.android.tungsten.setupwraith if stock launcher was disabled (prevents fallback on some Google TV boxes)
-if echo "$INSTALLED_ALL" | grep -qx "com.google.android.tungsten.setupwraith"; then
-    if [[ -n "${TO_DISABLE_MAP[$STOCK_LAUNCHER]:-}" ]]; then
-        log_info "Disabling Google TV SetupWraith companion (com.google.android.tungsten.setupwraith)..."
-        "${ADB_CMD[@]}" shell pm disable-user --user 0 "com.google.android.tungsten.setupwraith" >/dev/null 2>&1 || true
-    fi
+if echo "$INSTALLED_ALL" | grep -qx "com.google.android.tungsten.setupwraith" && [[ "$ALT_LAUNCHER_READY" == true ]]; then
+    log_info "Disabling Google TV SetupWraith companion (com.google.android.tungsten.setupwraith)..."
+    "${ADB_CMD[@]}" shell pm disable-user --user 0 "com.google.android.tungsten.setupwraith" >/dev/null 2>&1 || true
 fi
 
 log_ok "Disabled ${DISABLED_APPLIED} bloatware / stock launcher package(s)."
@@ -370,7 +430,7 @@ log_ok "Disabled ${DISABLED_APPLIED} bloatware / stock launcher package(s)."
 # ------------------------------------------------------------------------------
 # 9. Trigger HOME Intent to Launch Projectivy
 # ------------------------------------------------------------------------------
-log_step "Step 8: Triggering HOME intent to launch Projectivy"
+log_step "Step 9: Triggering HOME intent to launch Projectivy"
 
 if echo "$INSTALLED_ALL" | grep -qx "$PROJECTIVY_PKG"; then
     log_info "Setting ${PROJECTIVY_PKG} as default HOME activity..."
@@ -385,14 +445,19 @@ log_ok "HOME intent triggered! Projectivy should now be active on your TV screen
 # ------------------------------------------------------------------------------
 # 10. Push Projectivy .plbackup Files & Auto-Launch ImportSettingsActivity
 # ------------------------------------------------------------------------------
-log_step "Step 9: Restoring Projectivy layout, app groupings & button color schemes (.plbackup)"
+log_step "Step 10: Restoring Projectivy layout, app groupings & button color schemes (.plbackup)"
 
 PROJ_BACKUPS_DIR="${BACKUP_ROOT}/projectivy_backups"
 REMOTE_PROJ_FILES="/sdcard/Android/data/${PROJECTIVY_PKG}/files"
 REMOTE_PROJ_BACKUPS="${REMOTE_PROJ_FILES}/backups"
 
 if [[ -d "$PROJ_BACKUPS_DIR" ]] && compgen -G "${PROJ_BACKUPS_DIR}/*.plbackup" >/dev/null; then
-    # Remove any shell-owned backups subdir (0770 shell:ext_data_rw blocks Projectivy UID under Android 11-14 FUSE)
+    if ! "${ADB_CMD[@]}" shell "[ -d '${REMOTE_PROJ_FILES}' ]" 2>/dev/null; then
+        log_info "Launching Projectivy once so Android initializes its external data directory..."
+        "${ADB_CMD[@]}" shell am start -n "${PROJECTIVY_PKG}/.ui.home.MainActivity" >/dev/null 2>&1 || true
+        sleep 2
+    fi
+
     if [[ "$("${ADB_CMD[@]}" shell "stat -c '%U' '${REMOTE_PROJ_BACKUPS}' 2>/dev/null" | tr -d '\r')" == "shell" ]]; then
         "${ADB_CMD[@]}" shell "rm -rf '${REMOTE_PROJ_BACKUPS}' '${REMOTE_PROJ_FILES}/wallpapers'" 2>/dev/null || true
     fi
@@ -427,9 +492,8 @@ echo -e "\n${BOLD}${GREEN}======================================================
 echo -e "${BOLD}${GREEN}   RESTORE COMPLETE!                                        ${NC}"
 echo -e "${BOLD}${GREEN}============================================================${NC}"
 echo -e "Target Device     : ${BOLD}${TARGET_ADDR}${NC}"
-echo -e "Apps Installed    : ${BOLD}${INSTALLED_PKGS}${NC} (Failed: ${FAILED_PKGS})"
+echo -e "Sideloaded Cloned : ${BOLD}${INSTALLED_SIDELOAD}${NC} (Failed: ${FAILED_SIDELOAD})"
+echo -e "Play Store Apps   : ${BOLD}${#PLAYSTORE_PKGS[@]} verified/queued via Google Play${NC}"
 echo -e "Permissions       : ${BOLD}${GRANTED_COUNT} runtime grant(s) restored${NC}"
-echo -e "Packages Disabled : ${BOLD}${DISABLED_APPLIED} (including ${STOCK_LAUNCHER})${NC}"
-echo -e "Tip: To import Projectivy settings, open Projectivy Settings ->"
-echo -e "     Manage Settings -> Import Settings from /sdcard/Download."
+echo -e "Packages Disabled : ${BOLD}${DISABLED_APPLIED}${NC}"
 echo -e "${BOLD}${GREEN}============================================================${NC}"

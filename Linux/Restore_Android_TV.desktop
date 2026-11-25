@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Restore Android TV (CLI)
+GenericName=Android TV CLI Restore
+Comment=Restore APKs, Projectivy files, permissions, settings, and disable stock launcher on Android/Google TV
+Icon=/home/achim/.gemini/antigravity/scratch/streamer-backup/Linux/icon.svg
+Terminal=false
+Exec=gnome-terminal --title="Android TV Streamer - Restore" -- bash -c '"/home/achim/.gemini/antigravity/scratch/streamer-backup/Linux/restore_tv.sh"; echo ""; read -r -p "Press Enter to close this window..."'
+Categories=Utility;System;
+StartupNotify=true

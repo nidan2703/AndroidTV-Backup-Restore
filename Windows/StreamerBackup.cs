@@ -26,6 +26,7 @@ namespace StreamerBackup
         private const string STOCK_LAUNCHER = "com.google.android.apps.tv.launcherx";
         private const string SETUP_WRAITH = "com.google.android.tungsten.setupwraith";
         private const string PROJECTIVY_PKG = "com.spocky.projengmenu";
+        private const string PLAYSTORE_INSTALLER = "com.android.vending";
         private const string PLATFORM_TOOLS_URL = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip";
 
         private static readonly HashSet<string> FilteredSettingsKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -43,6 +44,49 @@ namespace StreamerBackup
             "verifier_verify_adb_installs",
             "network_scoring_provisioned",
             "wifi_saved_state"
+        };
+
+        // Known apps strictly distributed via Google Play Store (for legacy backups that lack package_installers.txt)
+        private static readonly HashSet<string> KnownPlayStorePackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "air.com.vudu.air.DownloaderTablet",
+            "com.amazon.amazonvideo.livingroom",
+            "com.angel.tv",
+            "com.apple.atve.androidtv.appletv",
+            "com.cbs.ott",
+            "com.disney.disneyplus",
+            "com.esaba.downloader",
+            "com.espn.score_center",
+            "com.fox.foxone",
+            "com.google.android.youtube.tv",
+            "com.hulu.livingroomplus",
+            "com.kanopy.tvapp",
+            "com.mixplorer.silver",
+            "com.moviesanywhere.goo",
+            "com.nbcuni.nbc.androidtv",
+            "com.netflix.ninja",
+            "com.peacocktv.peacockandroid",
+            "com.phlox.tvwebbrowser",
+            "com.plexapp.android",
+            "com.roku.web.trc",
+            "com.sling",
+            "com.spectrum.stva.androidtv",
+            "com.spocky.projengmenu",
+            "com.stremio.one",
+            "com.surfshark.vpnclient.android",
+            "com.truthsocial.android.tv.tplus",
+            "com.tubitv",
+            "com.viki.android",
+            "com.wbd.stream",
+            "com.zdf.android.mediathek",
+            "de.eye_interactive.atvl.playstore",
+            "de.fcbayern.android",
+            "de.swr.avp.ard.tv",
+            "dev.vodik7.tvquickactions",
+            "org.videolan.vlc",
+            "pl.solidexplorer2",
+            "tv.pluto.android",
+            "tv.wuaki.apptv"
         };
 
         private string configDir;
@@ -281,8 +325,8 @@ namespace StreamerBackup
 
             int cy = 10;
             chkApks = AddComponentRow(cardComp, ref cy,
-                "3rd-Party APKs & Split APKs",
-                "Pulls base & split APKs via pm path; restores via batch install-multiple -r -g");
+                "Play Store Manifest & Sideloaded APK Cloning",
+                "Clones sideloaded APKs via ADB; installs Play Store apps fresh from Google Play on Target TV");
             chkPerms = AddComponentRow(cardComp, ref cy,
                 "Granted Runtime Permissions",
                 "Exports granted=true permissions from dumpsys and re-grants them");
@@ -546,19 +590,20 @@ namespace StreamerBackup
 
             string metaFile = Path.Combine(bdir, "backup_metadata.txt");
             string apksDir = Path.Combine(bdir, "apks");
+            string playFile = Path.Combine(bdir, "packages", "playstore_packages.txt");
+            string sideFile = Path.Combine(bdir, "packages", "sideloaded_packages.txt");
             string disFile = Path.Combine(bdir, "packages", "disabled_packages.txt");
             string projDir = Path.Combine(bdir, "projectivy_backups");
 
             int apkCount = Directory.Exists(apksDir) ? Directory.GetDirectories(apksDir).Length : 0;
+            int playCount = CountNonEmptyLines(playFile);
+            int sideCount = CountNonEmptyLines(sideFile);
             int plCount = Directory.Exists(projDir) ? Directory.GetFiles(projDir, "*.plbackup").Length : 0;
-            int disCount = 0;
-            if (File.Exists(disFile))
-            {
-                foreach (string l in File.ReadAllLines(disFile))
-                {
-                    if (!string.IsNullOrWhiteSpace(l)) disCount++;
-                }
-            }
+            int disCount = CountNonEmptyLines(disFile);
+
+            string appSummary = (playCount > 0 || sideCount > 0)
+                ? string.Format("{0} Play Store + {1} Sideloaded", playCount, sideCount)
+                : string.Format("{0} Apps", apkCount);
 
             if (File.Exists(metaFile))
             {
@@ -567,18 +612,29 @@ namespace StreamerBackup
                 {
                     if (!string.IsNullOrWhiteSpace(l)) parts.Add(l.Trim());
                 }
-                lblBackupSummary.Text = string.Format("{0} | {1} Apps | {2} Projectivy .plbackup(s) | {3} Disabled",
-                    string.Join(" | ", parts.ToArray()), apkCount, plCount, disCount);
+                lblBackupSummary.Text = string.Format("{0} | {1} | {2} Projectivy .plbackup(s) | {3} Disabled",
+                    string.Join(" | ", parts.ToArray()), appSummary, plCount, disCount);
             }
-            else if (apkCount > 0 || plCount > 0)
+            else if (apkCount > 0 || playCount > 0 || plCount > 0)
             {
-                lblBackupSummary.Text = string.Format("Found {0} backed-up app(s), {1} Projectivy .plbackup(s), {2} disabled package(s).",
-                    apkCount, plCount, disCount);
+                lblBackupSummary.Text = string.Format("Found {0}, {1} Projectivy .plbackup(s), {2} disabled package(s).",
+                    appSummary, plCount, disCount);
             }
             else
             {
                 lblBackupSummary.Text = "Folder exists, no backup found yet.";
             }
+        }
+
+        private int CountNonEmptyLines(string path)
+        {
+            if (!File.Exists(path)) return 0;
+            int c = 0;
+            foreach (string l in File.ReadAllLines(path))
+            {
+                if (!string.IsNullOrWhiteSpace(l)) c++;
+            }
+            return c;
         }
 
         private void SetAllCheckboxes(bool active)
@@ -660,6 +716,18 @@ namespace StreamerBackup
             }
         }
 
+        private DialogResult ShowMessageBoxOnUi(string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon)
+        {
+            if (this.InvokeRequired)
+            {
+                return (DialogResult)this.Invoke(new Func<DialogResult>(delegate
+                {
+                    return MessageBox.Show(this, text, caption, buttons, icon);
+                }));
+            }
+            return MessageBox.Show(this, text, caption, buttons, icon);
+        }
+
         // ----------------------------------------------------------------------
         // ADB Process Execution
         // ----------------------------------------------------------------------
@@ -725,6 +793,18 @@ namespace StreamerBackup
             string output;
             Adb(target, subArgs, out output, timeoutMs);
             return output;
+        }
+
+        private HashSet<string> GetInstalledPackagesOnDevice(string target)
+        {
+            HashSet<string> set = new HashSet<string>(StringComparer.Ordinal);
+            string raw = AdbOut(target, "shell pm list packages");
+            foreach (string line in raw.Split('\n'))
+            {
+                string clean = line.Replace("package:", "").Trim();
+                if (!string.IsNullOrEmpty(clean)) set.Add(clean);
+            }
+            return set;
         }
 
         private bool ConnectAndAuthorize(string target)
@@ -881,7 +961,10 @@ namespace StreamerBackup
 
             DialogResult dr = MessageBox.Show(
                 this,
-                string.Format("Restore selected components to {0}?\n\nBackup Source Folder:\n{1}", target, bdir),
+                string.Format("Restore selected components to {0}?\n\n" +
+                    "- Sideloaded apps will be cloned directly via ADB.\n" +
+                    "- Play Store apps missing on Target TV will open in Google Play on your TV for fresh hardware-matched installation.\n\n" +
+                    "Backup Source Folder:\n{1}", target, bdir),
                 "Confirm Restore to " + target,
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Warning);
@@ -970,7 +1053,7 @@ namespace StreamerBackup
             {
                 AppendLog("Launching Projectivy once so Android initializes its external data directory...");
                 Adb(target, "shell am start -n " + PROJECTIVY_PKG + "/.ui.home.MainActivity", out outStr, 20000);
-                Thread.Sleep(2000);
+                Thread.Sleep(2500);
             }
 
             // Clean shell-owned backups folder so Projectivy's UID retains full FUSE read/write access on Android 11-14
@@ -1008,6 +1091,131 @@ namespace StreamerBackup
             else
             {
                 AppendLog("[WARN] Could not auto-launch ImportSettingsActivity: " + outStr.Trim());
+            }
+        }
+
+        // ----------------------------------------------------------------------
+        // Play Store vs Sideloaded Classification Helpers
+        // ----------------------------------------------------------------------
+        private void LoadPackageListsForRestore(
+            string bdir,
+            out List<string> playStorePkgs,
+            out List<string> sideloadedPkgs)
+        {
+            playStorePkgs = new List<string>();
+            sideloadedPkgs = new List<string>();
+
+            string packagesDir = Path.Combine(bdir, "packages");
+            string apksDir = Path.Combine(bdir, "apks");
+            string playFile = Path.Combine(packagesDir, "playstore_packages.txt");
+            string sideFile = Path.Combine(packagesDir, "sideloaded_packages.txt");
+            string instFile = Path.Combine(packagesDir, "package_installers.txt");
+
+            HashSet<string> playSet = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<string> sideSet = new HashSet<string>(StringComparer.Ordinal);
+
+            if (File.Exists(playFile) || File.Exists(sideFile))
+            {
+                if (File.Exists(playFile))
+                {
+                    foreach (string l in File.ReadAllLines(playFile, Encoding.UTF8))
+                    {
+                        string p = l.Trim();
+                        if (!string.IsNullOrEmpty(p)) playSet.Add(p);
+                    }
+                }
+                if (File.Exists(sideFile))
+                {
+                    foreach (string l in File.ReadAllLines(sideFile, Encoding.UTF8))
+                    {
+                        string p = l.Trim();
+                        if (!string.IsNullOrEmpty(p) && !playSet.Contains(p)) sideSet.Add(p);
+                    }
+                }
+            }
+            else if (File.Exists(instFile))
+            {
+                foreach (string l in File.ReadAllLines(instFile, Encoding.UTF8))
+                {
+                    string[] parts = l.Trim().Split(new char[] { ' ', '\t', '=' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 2)
+                    {
+                        string pkg = parts[0].Trim();
+                        string inst = parts[1].Trim();
+                        if (string.Equals(inst, PLAYSTORE_INSTALLER, StringComparison.OrdinalIgnoreCase))
+                            playSet.Add(pkg);
+                        else
+                            sideSet.Add(pkg);
+                    }
+                }
+            }
+            else
+            {
+                // Legacy backup folder fallback: inspect apks/<pkg> and third_party_packages.txt
+                AppendLog("[INFO] Legacy backup detected (no playstore_packages.txt found). Classifying Play Store vs. Sideloaded apps...");
+                HashSet<string> allCandidates = new HashSet<string>(StringComparer.Ordinal);
+                string thirdPartyFile = Path.Combine(packagesDir, "third_party_packages.txt");
+                if (File.Exists(thirdPartyFile))
+                {
+                    foreach (string l in File.ReadAllLines(thirdPartyFile, Encoding.UTF8))
+                    {
+                        string p = l.Trim();
+                        if (!string.IsNullOrEmpty(p)) allCandidates.Add(p);
+                    }
+                }
+                if (Directory.Exists(apksDir))
+                {
+                    foreach (string d in Directory.GetDirectories(apksDir))
+                    {
+                        allCandidates.Add(Path.GetFileName(d));
+                    }
+                }
+
+                foreach (string pkg in allCandidates)
+                {
+                    string pkgDir = Path.Combine(apksDir, pkg);
+                    int apkCnt = Directory.Exists(pkgDir) ? Directory.GetFiles(pkgDir, "*.apk").Length : 0;
+                    // All multi-APK split bundles (apkCnt > 1) or known Play Store apps come from Google Play Dynamic Delivery
+                    if (KnownPlayStorePackages.Contains(pkg) || apkCnt > 1)
+                        playSet.Add(pkg);
+                    else
+                        sideSet.Add(pkg);
+                }
+
+                // Persist the classified manifest files into packages/ so future runs have them
+                try
+                {
+                    Directory.CreateDirectory(packagesDir);
+                    List<string> pTmp = new List<string>(playSet);
+                    pTmp.Sort(StringComparer.Ordinal);
+                    List<string> sTmp = new List<string>(sideSet);
+                    sTmp.Sort(StringComparer.Ordinal);
+                    File.WriteAllText(playFile, string.Join("\n", pTmp.ToArray()) + (pTmp.Count > 0 ? "\n" : ""), Encoding.UTF8);
+                    File.WriteAllText(sideFile, string.Join("\n", sTmp.ToArray()) + (sTmp.Count > 0 ? "\n" : ""), Encoding.UTF8);
+                }
+                catch { }
+            }
+
+            playStorePkgs.AddRange(playSet);
+            playStorePkgs.Sort(StringComparer.Ordinal);
+            sideloadedPkgs.AddRange(sideSet);
+            sideloadedPkgs.Sort(StringComparer.Ordinal);
+        }
+
+        private void OpenPlayStoreForPackage(string target, string pkg)
+        {
+            string outStr;
+            int code = Adb(target,
+                string.Format("shell am start -a android.intent.action.VIEW -d \"market://details?id={0}\" -p {1}",
+                    pkg, PLAYSTORE_INSTALLER),
+                out outStr, 15000);
+
+            if (code != 0 || outStr.IndexOf("Error", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                Adb(target,
+                    string.Format("shell am start -a android.intent.action.VIEW -d \"https://play.google.com/store/apps/details?id={0}\"",
+                        pkg),
+                    out outStr, 15000);
             }
         }
 
@@ -1052,21 +1260,72 @@ namespace StreamerBackup
 
             AppendLog(string.Format("Detected Source Device: {0} (Android {1})", model, ver));
 
-            // 1. 3rd-Party APKs & Permissions
+            // 1. Classify 3rd-Party Packages (Play Store Manifest vs. Sideloaded APKs) & Permissions
             if (chkApks.Checked || chkPerms.Checked)
             {
-                SetProgress(15, "Listing 3rd-party packages...");
-                string rawPkgs = AdbOut(target, "shell pm list packages -3");
+                SetProgress(15, "Listing 3rd-party packages & installer origins...");
+                string rawPkgs = AdbOut(target, "shell pm list packages -3 -i");
                 List<string> pkgs = new List<string>();
+                List<string> playStorePkgs = new List<string>();
+                List<string> sideloadedPkgs = new List<string>();
+                List<string> installerLines = new List<string>();
+
+                Regex pkgInstRegex = new Regex(@"^package:(\S+)\s+installer=(\S+)");
+
                 foreach (string line in rawPkgs.Split('\n'))
                 {
-                    string clean = line.Replace("package:", "").Trim();
-                    if (!string.IsNullOrEmpty(clean)) pkgs.Add(clean);
-                }
-                pkgs.Sort(StringComparer.Ordinal);
-                File.WriteAllText(Path.Combine(packagesDir, "third_party_packages.txt"), string.Join("\n", pkgs.ToArray()) + "\n", Encoding.UTF8);
-                AppendLog(string.Format("Found {0} 3rd-party package(s).", pkgs.Count));
+                    string t = line.Trim();
+                    if (string.IsNullOrEmpty(t)) continue;
 
+                    string pkgName = "";
+                    string installer = "null";
+                    Match m = pkgInstRegex.Match(t);
+                    if (m.Success)
+                    {
+                        pkgName = m.Groups[1].Value.Trim();
+                        installer = m.Groups[2].Value.Trim();
+                    }
+                    else if (t.StartsWith("package:"))
+                    {
+                        string rest = t.Substring("package:".Length).Trim();
+                        string[] tokens = rest.Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (tokens.Length > 0) pkgName = tokens[0];
+                        for (int k = 1; k < tokens.Length; k++)
+                        {
+                            if (tokens[k].StartsWith("installer="))
+                                installer = tokens[k].Substring("installer=".Length).Trim();
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(pkgName))
+                    {
+                        pkgs.Add(pkgName);
+                        installerLines.Add(pkgName + " " + installer);
+                        if (string.Equals(installer, PLAYSTORE_INSTALLER, StringComparison.OrdinalIgnoreCase))
+                            playStorePkgs.Add(pkgName);
+                        else
+                            sideloadedPkgs.Add(pkgName);
+                    }
+                }
+
+                pkgs.Sort(StringComparer.Ordinal);
+                playStorePkgs.Sort(StringComparer.Ordinal);
+                sideloadedPkgs.Sort(StringComparer.Ordinal);
+                installerLines.Sort(StringComparer.Ordinal);
+
+                File.WriteAllText(Path.Combine(packagesDir, "third_party_packages.txt"),
+                    pkgs.Count > 0 ? string.Join("\n", pkgs.ToArray()) + "\n" : "", Encoding.UTF8);
+                File.WriteAllText(Path.Combine(packagesDir, "playstore_packages.txt"),
+                    playStorePkgs.Count > 0 ? string.Join("\n", playStorePkgs.ToArray()) + "\n" : "", Encoding.UTF8);
+                File.WriteAllText(Path.Combine(packagesDir, "sideloaded_packages.txt"),
+                    sideloadedPkgs.Count > 0 ? string.Join("\n", sideloadedPkgs.ToArray()) + "\n" : "", Encoding.UTF8);
+                File.WriteAllText(Path.Combine(packagesDir, "package_installers.txt"),
+                    installerLines.Count > 0 ? string.Join("\n", installerLines.ToArray()) + "\n" : "", Encoding.UTF8);
+
+                AppendLog(string.Format("Found {0} 3rd-party app(s): {1} Play Store app(s) (manifest), {2} Sideloaded app(s) (APK clone).",
+                    pkgs.Count, playStorePkgs.Count, sideloadedPkgs.Count));
+
+                HashSet<string> sideloadSet = new HashSet<string>(sideloadedPkgs, StringComparer.Ordinal);
                 List<string> allPerms = new List<string>();
                 Regex permRegex = new Regex(@"^\s*(android\.permission\.[a-zA-Z0-9._]+):\s*granted=true");
 
@@ -1074,42 +1333,50 @@ namespace StreamerBackup
                 {
                     if (cancelRequested) break;
                     string pkg = pkgs[i];
+                    bool isSideloaded = sideloadSet.Contains(pkg);
                     int pct = 15 + (int)(45.0 * (i + 1) / Math.Max(1, pkgs.Count));
-                    SetProgress(pct, string.Format("[{0}/{1}] Backing up {2}...", i + 1, pkgs.Count, pkg));
-                    AppendLog(string.Format("[{0}/{1}] Processing {2}...", i + 1, pkgs.Count, pkg));
+                    SetProgress(pct, string.Format("[{0}/{1}] Processing {2}...", i + 1, pkgs.Count, pkg));
 
                     if (chkApks.Checked)
                     {
-                        string pkgDir = Path.Combine(apksDir, pkg);
-                        Directory.CreateDirectory(pkgDir);
-                        foreach (string oldApk in Directory.GetFiles(pkgDir, "*.apk"))
+                        if (isSideloaded)
                         {
-                            try { File.Delete(oldApk); } catch { }
-                        }
+                            AppendLog(string.Format("[{0}/{1}] Cloning sideloaded app: {2}...", i + 1, pkgs.Count, pkg));
+                            string pkgDir = Path.Combine(apksDir, pkg);
+                            Directory.CreateDirectory(pkgDir);
+                            foreach (string oldApk in Directory.GetFiles(pkgDir, "*.apk"))
+                            {
+                                try { File.Delete(oldApk); } catch { }
+                            }
 
-                        string rawPaths = AdbOut(target, "shell pm path " + pkg);
-                        List<string> apkPaths = new List<string>();
-                        foreach (string line in rawPaths.Split('\n'))
+                            string rawPaths = AdbOut(target, "shell pm path " + pkg);
+                            List<string> apkPaths = new List<string>();
+                            foreach (string line in rawPaths.Split('\n'))
+                            {
+                                string t = line.Trim();
+                                if (t.StartsWith("package:"))
+                                    apkPaths.Add(t.Substring("package:".Length).Trim());
+                            }
+
+                            for (int s = 0; s < apkPaths.Count; s++)
+                            {
+                                string remoteApk = apkPaths[s];
+                                string baseName = Path.GetFileName(remoteApk);
+                                string localApk = Path.Combine(pkgDir, baseName);
+                                if (File.Exists(localApk))
+                                    localApk = Path.Combine(pkgDir, string.Format("{0}_{1}", s + 1, baseName));
+
+                                string pullOut;
+                                int code = Adb(target, string.Format("pull \"{0}\" \"{1}\"", remoteApk, localApk), out pullOut, 300000);
+                                if (code != 0)
+                                    AppendLog("  [WARN] Failed pulling " + remoteApk + ": " + pullOut.Trim());
+                            }
+                            AppendLog(string.Format("  [OK] Pulled {0} APK file(s) for sideloaded app {1}", apkPaths.Count, pkg));
+                        }
+                        else
                         {
-                            string t = line.Trim();
-                            if (t.StartsWith("package:"))
-                                apkPaths.Add(t.Substring("package:".Length).Trim());
+                            AppendLog(string.Format("[{0}/{1}] Recorded Play Store app in manifest: {2}", i + 1, pkgs.Count, pkg));
                         }
-
-                        for (int s = 0; s < apkPaths.Count; s++)
-                        {
-                            string remoteApk = apkPaths[s];
-                            string baseName = Path.GetFileName(remoteApk);
-                            string localApk = Path.Combine(pkgDir, baseName);
-                            if (File.Exists(localApk))
-                                localApk = Path.Combine(pkgDir, string.Format("{0}_{1}", s + 1, baseName));
-
-                            string pullOut;
-                            int code = Adb(target, string.Format("pull \"{0}\" \"{1}\"", remoteApk, localApk), out pullOut, 300000);
-                            if (code != 0)
-                                AppendLog("  [WARN] Failed pulling " + remoteApk + ": " + pullOut.Trim());
-                        }
-                        AppendLog(string.Format("  [OK] Pulled {0} APK file(s) for {1}", apkPaths.Count, pkg));
                     }
 
                     if (chkPerms.Checked)
@@ -1131,7 +1398,7 @@ namespace StreamerBackup
                             File.WriteAllText(Path.Combine(permsDir, pkg + ".permissions"), string.Join("\n", sortedG.ToArray()) + "\n", Encoding.UTF8);
                             foreach (string perm in sortedG)
                                 allPerms.Add(pkg + " " + perm);
-                            AppendLog(string.Format("  [OK] Exported {0} granted runtime permission(s)", sortedG.Count));
+                            AppendLog(string.Format("  [OK] Exported {0} granted runtime permission(s) for {1}", sortedG.Count, pkg));
                         }
                     }
                 }
@@ -1272,25 +1539,37 @@ namespace StreamerBackup
                 }
             }
 
-            // 2. Batch install APKs via install-multiple -r -g
-            if (!cancelRequested && chkApks.Checked && Directory.Exists(apksDir))
+            // 2. Restore Sideloaded APKs via ADB & Install Play Store Apps Fresh from Google Play (Mode A)
+            if (!cancelRequested && chkApks.Checked)
             {
-                string[] pkgDirs = Directory.GetDirectories(apksDir);
-                Array.Sort(pkgDirs, StringComparer.Ordinal);
-                int installedOk = 0;
+                List<string> playStorePkgs;
+                List<string> sideloadedPkgs;
+                LoadPackageListsForRestore(bdir, out playStorePkgs, out sideloadedPkgs);
 
-                for (int i = 0; i < pkgDirs.Length; i++)
+                AppendLog(string.Format("Manifest Summary: {0} Sideloaded app(s) to clone via ADB, {1} Play Store app(s) to verify/install via Google Play.",
+                    sideloadedPkgs.Count, playStorePkgs.Count));
+
+                // 2A. Clone Sideloaded Apps via install-multiple -r -g
+                int sideloadInstalled = 0;
+                int sideloadAttempted = 0;
+                for (int i = 0; i < sideloadedPkgs.Count; i++)
                 {
                     if (cancelRequested) break;
-                    string pkgDir = pkgDirs[i];
-                    string pkgName = Path.GetFileName(pkgDir);
+                    string pkgName = sideloadedPkgs[i];
+                    string pkgDir = Path.Combine(apksDir, pkgName);
+                    if (!Directory.Exists(pkgDir))
+                    {
+                        AppendLog(string.Format("  [WARN] Sideloaded APK folder missing for {0}, skipping.", pkgName));
+                        continue;
+                    }
                     string[] apkFiles = Directory.GetFiles(pkgDir, "*.apk");
                     if (apkFiles.Length == 0) continue;
 
+                    sideloadAttempted++;
                     Array.Sort(apkFiles, StringComparer.Ordinal);
-                    int pct = 15 + (int)(45.0 * (i + 1) / Math.Max(1, pkgDirs.Length));
-                    SetProgress(pct, string.Format("[{0}/{1}] Installing {2}...", i + 1, pkgDirs.Length, pkgName));
-                    AppendLog(string.Format("[{0}/{1}] Installing {2} ({3} APK(s))...", i + 1, pkgDirs.Length, pkgName, apkFiles.Length));
+                    int pct = 15 + (int)(20.0 * (i + 1) / Math.Max(1, sideloadedPkgs.Count));
+                    SetProgress(pct, string.Format("[Sideload {0}/{1}] Installing {2}...", i + 1, sideloadedPkgs.Count, pkgName));
+                    AppendLog(string.Format("[Sideload {0}/{1}] Cloning {2} ({3} APK(s))...", i + 1, sideloadedPkgs.Count, pkgName, apkFiles.Length));
 
                     StringBuilder quotedApks = new StringBuilder();
                     foreach (string apk in apkFiles)
@@ -1301,8 +1580,8 @@ namespace StreamerBackup
                     int code = Adb(target, "install-multiple -r -g" + quotedApks.ToString(), out outStr, 300000);
                     if (code == 0)
                     {
-                        installedOk++;
-                        AppendLog("  [OK] Installed " + pkgName);
+                        sideloadInstalled++;
+                        AppendLog("  [OK] Cloned sideloaded app: " + pkgName);
                     }
                     else
                     {
@@ -1311,16 +1590,116 @@ namespace StreamerBackup
                         int code2 = Adb(target, "install-multiple -r" + quotedApks.ToString(), out outStr2, 300000);
                         if (code2 == 0)
                         {
-                            installedOk++;
-                            AppendLog("  [OK] Installed " + pkgName + " (without -g)");
+                            sideloadInstalled++;
+                            AppendLog("  [OK] Cloned sideloaded app: " + pkgName + " (without -g)");
                         }
                         else
                         {
-                            AppendLog("  [ERROR] Failed to install " + pkgName + ": " + outStr2.Trim());
+                            AppendLog("  [ERROR] Failed to clone sideloaded app " + pkgName + ": " + outStr2.Trim());
                         }
                     }
                 }
-                AppendLog(string.Format("[OK] Batch APK install finished: {0}/{1} succeeded.", installedOk, pkgDirs.Length));
+                AppendLog(string.Format("[OK] Sideloaded APK cloning finished: {0}/{1} succeeded.", sideloadInstalled, sideloadAttempted));
+
+                // 2B. Play Store Manifest Queue (Mode A: Fresh Install from Target TV's Google Play Store)
+                if (!cancelRequested && playStorePkgs.Count > 0)
+                {
+                    HashSet<string> currentlyInstalled = GetInstalledPackagesOnDevice(target);
+                    List<string> missingPlayPkgs = new List<string>();
+                    int alreadyInstalledPlay = 0;
+
+                    // Put Projectivy first if it's missing so the custom launcher is ready right away
+                    if (playStorePkgs.Contains(PROJECTIVY_PKG) && !currentlyInstalled.Contains(PROJECTIVY_PKG))
+                    {
+                        missingPlayPkgs.Add(PROJECTIVY_PKG);
+                    }
+
+                    foreach (string pkg in playStorePkgs)
+                    {
+                        if (currentlyInstalled.Contains(pkg))
+                        {
+                            alreadyInstalledPlay++;
+                        }
+                        else if (pkg != PROJECTIVY_PKG)
+                        {
+                            missingPlayPkgs.Add(pkg);
+                        }
+                    }
+
+                    AppendLog("==========================================================");
+                    AppendLog(string.Format("PLAY STORE MANIFEST CHECK: {0} already installed, {1} to install from Google Play.",
+                        alreadyInstalledPlay, missingPlayPkgs.Count));
+                    AppendLog("==========================================================");
+
+                    if (missingPlayPkgs.Count > 0)
+                    {
+                        int playInstalledCount = 0;
+                        bool skipRemainingPlayStore = false;
+
+                        for (int i = 0; i < missingPlayPkgs.Count; i++)
+                        {
+                            if (cancelRequested || skipRemainingPlayStore) break;
+                            string pkg = missingPlayPkgs[i];
+
+                            // Re-check in case a previous Play Store background download finished
+                            currentlyInstalled = GetInstalledPackagesOnDevice(target);
+                            if (currentlyInstalled.Contains(pkg))
+                            {
+                                playInstalledCount++;
+                                AppendLog(string.Format("[Play Store {0}/{1}] {2} is now installed!", i + 1, missingPlayPkgs.Count, pkg));
+                                continue;
+                            }
+
+                            int pct = 35 + (int)(25.0 * (i + 1) / Math.Max(1, missingPlayPkgs.Count));
+                            SetProgress(pct, string.Format("[Play Store {0}/{1}] Opening {2} on TV Play Store...", i + 1, missingPlayPkgs.Count, pkg));
+                            AppendLog(string.Format("[Play Store {0}/{1}] Opening Google Play Store on TV for: {2}", i + 1, missingPlayPkgs.Count, pkg));
+
+                            OpenPlayStoreForPackage(target, pkg);
+
+                            // Poll automatically in the background while prompt or user installs on TV
+                            DialogResult dr = ShowMessageBoxOnUi(
+                                string.Format("Play Store App [{0} of {1}]:\n\n" +
+                                    "Package: {2}\n\n" +
+                                    "The Google Play Store page for this app is now open on your TV screen.\n" +
+                                    "1. Press 'Install' on your TV remote.\n" +
+                                    "2. Click 'YES' below to move to the next Play Store app (you don't need to wait for the download to finish once it starts queuing).\n\n" +
+                                    "- Click 'YES' -> Next Play Store App\n" +
+                                    "- Click 'NO' -> Re-open this app's Play Store page on TV\n" +
+                                    "- Click 'CANCEL' -> Skip remaining Play Store apps and continue restore",
+                                    i + 1, missingPlayPkgs.Count, pkg),
+                                string.Format("Install from Google Play on TV ({0}/{1})", i + 1, missingPlayPkgs.Count),
+                                MessageBoxButtons.YesNoCancel,
+                                MessageBoxIcon.Information);
+
+                            if (dr == DialogResult.No)
+                            {
+                                // Re-open the same package
+                                i--;
+                                continue;
+                            }
+                            else if (dr == DialogResult.Cancel)
+                            {
+                                AppendLog("[INFO] Skipping remaining Play Store manifest apps at user request.");
+                                skipRemainingPlayStore = true;
+                                break;
+                            }
+
+                            currentlyInstalled = GetInstalledPackagesOnDevice(target);
+                            if (currentlyInstalled.Contains(pkg))
+                            {
+                                playInstalledCount++;
+                                AppendLog("  [OK] Confirmed installed: " + pkg);
+                            }
+                            else
+                            {
+                                AppendLog("  [INFO] Queued/proceeding to next app: " + pkg);
+                            }
+                        }
+
+                        AppendLog(string.Format("[OK] Play Store manifest queue finished ({0} confirmed installed immediately; background downloads may continue on TV).",
+                            playInstalledCount));
+                    }
+                }
             }
 
             // 3. Re-grant runtime permissions
@@ -1331,11 +1710,12 @@ namespace StreamerBackup
                 int grantedCnt = 0;
                 if (File.Exists(permFile))
                 {
+                    HashSet<string> installedNow = GetInstalledPackagesOnDevice(target);
                     foreach (string line in File.ReadAllLines(permFile, Encoding.UTF8))
                     {
                         if (cancelRequested) break;
                         string[] parts = line.Trim().Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                        if (parts.Length == 2)
+                        if (parts.Length == 2 && installedNow.Contains(parts[0]))
                         {
                             int code = Adb(target, string.Format("shell pm grant {0} {1}", parts[0], parts[1]), out outStr, 15000);
                             if (code == 0) grantedCnt++;
@@ -1397,13 +1777,7 @@ namespace StreamerBackup
                     }
                 }
 
-                string installedRaw = AdbOut(target, "shell pm list packages");
-                HashSet<string> installedSet = new HashSet<string>(StringComparer.Ordinal);
-                foreach (string l in installedRaw.Split('\n'))
-                {
-                    string clean = l.Replace("package:", "").Trim();
-                    if (!string.IsNullOrEmpty(clean)) installedSet.Add(clean);
-                }
+                HashSet<string> installedSet = GetInstalledPackagesOnDevice(target);
 
                 if (installedSet.Contains(PROJECTIVY_PKG))
                 {
@@ -1416,6 +1790,12 @@ namespace StreamerBackup
                 foreach (string pkg in sortedDis)
                 {
                     if (!installedSet.Contains(pkg)) continue;
+                    // Safety check: do not disable the stock launcher unless Projectivy is installed!
+                    if ((pkg == STOCK_LAUNCHER || pkg == "com.google.android.tvlauncher") && !installedSet.Contains(PROJECTIVY_PKG))
+                    {
+                        AppendLog("  [WARN] Projectivy is not installed yet; keeping stock launcher enabled (" + pkg + ") so TV has a home screen.");
+                        continue;
+                    }
                     int code = Adb(target, "shell pm disable-user --user 0 " + pkg, out outStr, 20000);
                     if (code == 0)
                     {
@@ -1428,7 +1808,7 @@ namespace StreamerBackup
                     }
                 }
 
-                if (installedSet.Contains(SETUP_WRAITH))
+                if (installedSet.Contains(SETUP_WRAITH) && installedSet.Contains(PROJECTIVY_PKG))
                 {
                     Adb(target, "shell pm disable-user --user 0 " + SETUP_WRAITH, out outStr, 20000);
                 }

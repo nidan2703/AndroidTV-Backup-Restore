@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Android / Google TV Streamer Backup & Restore Manager for Zorin OS
+Android / Google TV Streamer Backup & Restore Manager for Zorin OS / Linux
 Built with Python 3 + GTK 4 + Libadwaita (Adw 1)
 """
 
@@ -31,6 +31,7 @@ CONFIG_PATH = Path.home() / ".config" / "streamer-backup" / "config.json"
 STOCK_LAUNCHER = "com.google.android.apps.tv.launcherx"
 SETUP_WRAITH = "com.google.android.tungsten.setupwraith"
 PROJECTIVY_PKG = "com.spocky.projengmenu"
+PLAYSTORE_INSTALLER = "com.android.vending"
 
 # Settings keys that must never be copied across devices
 FILTERED_SETTINGS_KEYS = {
@@ -47,6 +48,48 @@ FILTERED_SETTINGS_KEYS = {
     "verifier_verify_adb_installs",
     "network_scoring_provisioned",
     "wifi_saved_state",
+}
+
+# Known apps strictly distributed via Google Play Store (for legacy backups that lack package_installers.txt)
+KNOWN_PLAYSTORE_PACKAGES = {
+    "air.com.vudu.air.DownloaderTablet",
+    "com.amazon.amazonvideo.livingroom",
+    "com.angel.tv",
+    "com.apple.atve.androidtv.appletv",
+    "com.cbs.ott",
+    "com.disney.disneyplus",
+    "com.esaba.downloader",
+    "com.espn.score_center",
+    "com.fox.foxone",
+    "com.google.android.youtube.tv",
+    "com.hulu.livingroomplus",
+    "com.kanopy.tvapp",
+    "com.mixplorer.silver",
+    "com.moviesanywhere.goo",
+    "com.nbcuni.nbc.androidtv",
+    "com.netflix.ninja",
+    "com.peacocktv.peacockandroid",
+    "com.phlox.tvwebbrowser",
+    "com.plexapp.android",
+    "com.roku.web.trc",
+    "com.sling",
+    "com.spectrum.stva.androidtv",
+    "com.spocky.projengmenu",
+    "com.stremio.one",
+    "com.surfshark.vpnclient.android",
+    "com.truthsocial.android.tv.tplus",
+    "com.tubitv",
+    "com.viki.android",
+    "com.wbd.stream",
+    "com.zdf.android.mediathek",
+    "de.eye_interactive.atvl.playstore",
+    "de.fcbayern.android",
+    "de.swr.avp.ard.tv",
+    "dev.vodik7.tvquickactions",
+    "org.videolan.vlc",
+    "pl.solidexplorer2",
+    "tv.pluto.android",
+    "tv.wuaki.apptv",
 }
 
 
@@ -203,8 +246,8 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
 
         self.chk_apks = Gtk.CheckButton(active=True, valign=Gtk.Align.CENTER)
         row_apks = Adw.ActionRow(
-            title="3rd-Party APKs & Split APKs",
-            subtitle="Pulls via pm path; restores via batch install-multiple -r -g",
+            title="Play Store Manifest & Sideloaded APK Cloning",
+            subtitle="Clones sideloaded APKs via ADB; installs Play Store apps fresh from Google Play on Target TV",
             use_markup=False,
         )
         row_apks.add_prefix(self.chk_apks)
@@ -382,10 +425,18 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
     def show_toast(self, title: str):
         GLib.idle_add(lambda: self.toast_overlay.add_toast(Adw.Toast.new(title)) or False)
 
+    @staticmethod
+    def _count_nonempty_lines(p: Path) -> int:
+        if not p.exists():
+            return 0
+        return len([l for l in p.read_text(encoding="utf-8", errors="ignore").splitlines() if l.strip()])
+
     def refresh_backup_summary(self):
         bdir = Path(self.backup_dir_row.get_text().strip() or DEFAULT_BACKUP_DIR)
         meta_file = bdir / "backup_metadata.txt"
         apks_dir = bdir / "apks"
+        play_file = bdir / "packages" / "playstore_packages.txt"
+        side_file = bdir / "packages" / "sideloaded_packages.txt"
         disabled_file = bdir / "packages" / "disabled_packages.txt"
         proj_dir = bdir / "projectivy_backups"
 
@@ -394,25 +445,67 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
             return
 
         apk_count = len([p for p in apks_dir.iterdir() if p.is_dir()]) if apks_dir.exists() else 0
-        dis_count = (
-            len([line for line in disabled_file.read_text(encoding="utf-8", errors="ignore").splitlines() if line.strip()])
-            if disabled_file.exists()
-            else 0
-        )
+        play_count = self._count_nonempty_lines(play_file)
+        side_count = self._count_nonempty_lines(side_file)
+        dis_count = self._count_nonempty_lines(disabled_file)
         pl_count = len(list(proj_dir.glob("*.plbackup"))) if proj_dir.exists() else 0
+
+        app_summary = (
+            f"{play_count} Play Store + {side_count} Sideloaded"
+            if (play_count > 0 or side_count > 0)
+            else f"{apk_count} Apps"
+        )
 
         if meta_file.exists():
             meta_lines = [l.strip() for l in meta_file.read_text(encoding="utf-8", errors="ignore").splitlines() if l.strip()]
             summary = " | ".join(meta_lines)
             self.backup_info_row.set_subtitle(
-                f"{summary} | {apk_count} Apps | {pl_count} Projectivy .plbackup(s) | {dis_count} Disabled"
+                f"{summary} | {app_summary} | {pl_count} Projectivy .plbackup(s) | {dis_count} Disabled"
             )
-        elif apk_count > 0 or pl_count > 0:
+        elif apk_count > 0 or play_count > 0 or pl_count > 0:
             self.backup_info_row.set_subtitle(
-                f"Found {apk_count} backed-up app(s), {pl_count} Projectivy .plbackup(s), {dis_count} disabled package(s)."
+                f"Found {app_summary}, {pl_count} Projectivy .plbackup(s), {dis_count} disabled package(s)."
             )
         else:
             self.backup_info_row.set_subtitle("Folder exists, no backup found yet.")
+
+    def ask_playstore_dialog_sync(self, pkg: str, idx: int, total: int) -> str:
+        """
+        Shows a blocking modal Adw.MessageDialog from a worker thread and returns:
+        'next', 'reopen', or 'skip_all'
+        """
+        event = threading.Event()
+        result_holder = {"choice": "next"}
+
+        def _present():
+            dialog = Adw.MessageDialog(
+                transient_for=self,
+                heading=f"Install from Google Play on TV ({idx}/{total})",
+                body=(
+                    f"Package: {pkg}\n\n"
+                    f"The Google Play Store page for this app is now open on your TV screen.\n"
+                    f"1. Press 'Install' on your TV remote.\n"
+                    f"2. Click 'Next App' below (you don't need to wait for the download to complete once it queues)."
+                ),
+            )
+            dialog.add_response("skip_all", "Skip Remaining")
+            dialog.add_response("reopen", "Re-open on TV")
+            dialog.add_response("next", "Next App")
+            dialog.set_response_appearance("next", Adw.ResponseAppearance.SUGGESTED)
+            dialog.set_default_response("next")
+            dialog.set_close_response("next")
+
+            def _on_resp(_dlg, resp):
+                result_holder["choice"] = resp if resp in ("next", "reopen", "skip_all") else "next"
+                event.set()
+
+            dialog.connect("response", _on_resp)
+            dialog.present()
+            return False
+
+        GLib.idle_add(_present)
+        event.wait()
+        return result_holder["choice"]
 
     # --------------------------------------------------------------------------
     # Button Callbacks
@@ -495,8 +588,9 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
             transient_for=self,
             heading=f"Restore to {target}?",
             body=(
-                f"This will push files, batch-install APKs, grant runtime permissions, "
-                f"apply safe settings, and disable the stock launcher on {target}.\n\n"
+                f"- Sideloaded apps will be cloned directly via ADB.\n"
+                f"- Play Store apps missing on {target} will open in Google Play on your TV for fresh hardware-matched installation.\n"
+                f"- Runtime permissions, safe settings, debloat, and Projectivy layout will be applied.\n\n"
                 f"Backup Source Folder:\n{bdir}"
             ),
         )
@@ -513,48 +607,6 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
 
         dialog.connect("response", _on_response)
         dialog.present()
-
-    def on_restore_projectivy_only(self, _btn):
-        self.save_config()
-        source = normalize_target(self.source_ip_Row.get_text())
-        target = normalize_target(self.target_ip_Row.get_text())
-        bdir = Path(self.backup_dir_row.get_text().strip() or DEFAULT_BACKUP_DIR)
-        self.cancel_requested = False
-
-        def _worker():
-            self.set_busy(True)
-            self.log("==========================================================")
-            self.log("PROJECTIVY LAYOUT, GROUPINGS & COLOR SCHEME TRANSFER")
-            self.log("==========================================================")
-            bdir.mkdir(parents=True, exist_ok=True)
-
-            # Check if we already have .plbackup files locally; if not (or if source is online), try refreshing from source
-            proj_dir = bdir / "projectivy_backups"
-            proj_dir.mkdir(parents=True, exist_ok=True)
-            existing = list(proj_dir.glob("*.plbackup"))
-
-            code, state_out = self.adb(source, ["get-state"], timeout=5)
-            if code == 0 and state_out.strip() == "device":
-                self.set_progress(0.2, f"Pulling latest Projectivy .plbackup from Source ({source})...")
-                self.pull_projectivy_backups(source, bdir)
-            elif not existing:
-                self.log(f"No local .plbackup files yet; connecting to Source ({source}) to pull them...")
-                if self.connect_and_authorize(source):
-                    self.pull_projectivy_backups(source, bdir)
-
-            self.set_progress(0.5, f"Connecting to Target TV ({target})...")
-            if not self.connect_and_authorize(target):
-                self.set_progress(0.0, "Aborted: Could not connect to Target TV")
-                self.set_busy(False)
-                return
-
-            self.set_progress(0.75, f"Pushing & importing Projectivy layout on {target}...")
-            self.push_and_import_projectivy_backups(target, bdir)
-            self.set_progress(1.0, "Projectivy Layout Transfer Complete — Check TV Screen!")
-            self.show_toast("Check your Target TV screen to confirm Projectivy Import!")
-            self.set_busy(False)
-
-        threading.Thread(target=_worker, daemon=True).start()
 
     # --------------------------------------------------------------------------
     # Projectivy Backup & Auto-Import Helpers
@@ -608,11 +660,8 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
         if not self.adb_out(target, ["shell", f"[ -d '{remote_files_dir}' ] && echo yes"]).strip():
             self.log("Launching Projectivy once so Android initializes its external data directory...")
             self.adb(target, ["shell", "am", "start", "-n", f"{PROJECTIVY_PKG}/.ui.home.MainActivity"])
-            threading.Event().wait(2.0)
+            threading.Event().wait(2.5)
 
-        # IMPORTANT: Do NOT 'mkdir .../backups' as 'shell' user unless Projectivy already created it!
-        # On Android 11-14 FUSE, directories created by 'shell' inside /sdcard/Android/data/<pkg>/files get mode 0770 (shell:ext_data_rw),
-        # which prevents the app's own UID from reading inside that subdirectory!
         owner = self.adb_out(target, ["shell", f"stat -c '%U' '{remote_backups}' 2>/dev/null"]).strip()
         if owner == "shell":
             self.log("Cleaning shell-owned backups subfolder so Projectivy retains full read/write access...")
@@ -624,7 +673,6 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
         self.adb(target, ["push", str(newest_pl), remote_target_file], timeout=60)
         self.adb(target, ["push", str(newest_pl), f"/sdcard/Download/{newest_pl.name}"], timeout=60)
 
-        # If Projectivy already owns its backups directory, also push all .plbackup files there
         owner_after = self.adb_out(target, ["shell", f"stat -c '%U' '{remote_backups}' 2>/dev/null"]).strip()
         if owner_after and owner_after != "shell":
             self.adb(target, ["push", f"{proj_dir}/.", f"{remote_backups}/"], timeout=120)
@@ -658,6 +706,100 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
             self.log("You can import manually on TV: Projectivy Settings -> Manage Settings -> Import.")
 
     # --------------------------------------------------------------------------
+    # Play Store vs Sideloaded Classification Helpers
+    # --------------------------------------------------------------------------
+    def load_package_lists_for_restore(self, bdir: Path) -> tuple[list[str], list[str]]:
+        packages_dir = bdir / "packages"
+        apks_dir = bdir / "apks"
+        play_file = packages_dir / "playstore_packages.txt"
+        side_file = packages_dir / "sideloaded_packages.txt"
+        inst_file = packages_dir / "package_installers.txt"
+
+        play_set = set()
+        side_set = set()
+
+        if play_file.exists() or side_file.exists():
+            if play_file.exists():
+                for line in play_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    p = line.strip()
+                    if p:
+                        play_set.add(p)
+            if side_file.exists():
+                for line in side_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    p = line.strip()
+                    if p and p not in play_set:
+                        side_set.add(p)
+        elif inst_file.exists():
+            for line in inst_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    pkg, inst = parts[0].strip(), parts[1].strip()
+                    if inst.lower() == PLAYSTORE_INSTALLER:
+                        play_set.add(pkg)
+                    else:
+                        side_set.add(pkg)
+        else:
+            self.log("[INFO] Legacy backup detected (no playstore_packages.txt found). Classifying Play Store vs. Sideloaded apps...")
+            all_candidates = set()
+            tp_file = packages_dir / "third_party_packages.txt"
+            if tp_file.exists():
+                for line in tp_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    if line.strip():
+                        all_candidates.add(line.strip())
+            if apks_dir.exists():
+                for d in apks_dir.iterdir():
+                    if d.is_dir():
+                        all_candidates.add(d.name)
+
+            for pkg in all_candidates:
+                pkg_dir = apks_dir / pkg
+                apk_cnt = len(list(pkg_dir.glob("*.apk"))) if pkg_dir.exists() else 0
+                if pkg in KNOWN_PLAYSTORE_PACKAGES or apk_cnt > 1:
+                    play_set.add(pkg)
+                else:
+                    side_set.add(pkg)
+
+            try:
+                packages_dir.mkdir(parents=True, exist_ok=True)
+                play_file.write_text("\n".join(sorted(play_set)) + ("\n" if play_set else ""), encoding="utf-8")
+                side_file.write_text("\n".join(sorted(side_set)) + ("\n" if side_set else ""), encoding="utf-8")
+            except Exception:
+                pass
+
+        return sorted(play_set), sorted(side_set)
+
+    def open_playstore_for_package(self, target: str, pkg: str):
+        code, out = self.adb(
+            target,
+            [
+                "shell",
+                "am",
+                "start",
+                "-a",
+                "android.intent.action.VIEW",
+                "-d",
+                f"market://details?id={pkg}",
+                "-p",
+                PLAYSTORE_INSTALLER,
+            ],
+            timeout=15,
+        )
+        if code != 0 or "Error" in out:
+            self.adb(
+                target,
+                [
+                    "shell",
+                    "am",
+                    "start",
+                    "-a",
+                    "android.intent.action.VIEW",
+                    "-d",
+                    f"https://play.google.com/store/apps/details?id={pkg}",
+                ],
+                timeout=15,
+            )
+
+    # --------------------------------------------------------------------------
     # ADB Helpers
     # --------------------------------------------------------------------------
     def run_cmd(self, args: list[str], timeout: int = 300) -> tuple[int, str]:
@@ -681,6 +823,10 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
     def adb_out(self, target: str, subargs: list[str], timeout: int = 60) -> str:
         _, out = self.adb(target, subargs, timeout=timeout)
         return out
+
+    def get_installed_packages_on_device(self, target: str) -> set[str]:
+        raw = self.adb_out(target, ["shell", "pm", "list", "packages"])
+        return {l.replace("package:", "").strip() for l in raw.splitlines() if l.strip()}
 
     def connect_and_authorize(self, target: str) -> bool:
         if not shutil.which("adb"):
@@ -754,45 +900,97 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
         )
         self.log(f"Detected Source Device: {model} (Android {ver})")
 
-        # 1. 3rd-party APKs & Permissions
+        # 1. Classify 3rd-party packages (Play Store Manifest vs. Sideloaded APKs) & Permissions
         if self.chk_apks.get_active() or self.chk_perms.get_active():
-            self.set_progress(0.15, "Listing 3rd-party packages...")
-            raw_pkgs = self.adb_out(target, ["shell", "pm", "list", "packages", "-3"])
-            pkgs = sorted(
-                [line.replace("package:", "").strip() for line in raw_pkgs.splitlines() if line.strip()]
-            )
-            (packages_dir / "third_party_packages.txt").write_text("\n".join(pkgs) + "\n", encoding="utf-8")
-            self.log(f"Found {len(pkgs)} 3rd-party package(s).")
+            self.set_progress(0.15, "Listing 3rd-party packages & installer origins...")
+            raw_pkgs = self.adb_out(target, ["shell", "pm", "list", "packages", "-3", "-i"])
+            pkgs = []
+            playstore_pkgs = []
+            sideloaded_pkgs = []
+            installer_lines = []
 
+            pkg_inst_re = re.compile(r"^package:(\S+)\s+installer=(\S+)")
+            for line in raw_pkgs.splitlines():
+                t = line.strip()
+                if not t:
+                    continue
+                pkg_name = ""
+                installer = "null"
+                m = pkg_inst_re.match(t)
+                if m:
+                    pkg_name, installer = m.group(1).strip(), m.group(2).strip()
+                elif t.startswith("package:"):
+                    tokens = t[len("package:"):].strip().split()
+                    if tokens:
+                        pkg_name = tokens[0]
+                    for tok in tokens[1:]:
+                        if tok.startswith("installer="):
+                            installer = tok[len("installer="):].strip()
+                if pkg_name:
+                    pkgs.append(pkg_name)
+                    installer_lines.append(f"{pkg_name} {installer}")
+                    if installer.lower() == PLAYSTORE_INSTALLER:
+                        playstore_pkgs.append(pkg_name)
+                    else:
+                        sideloaded_pkgs.append(pkg_name)
+
+            pkgs.sort()
+            playstore_pkgs.sort()
+            sideloaded_pkgs.sort()
+            installer_lines.sort()
+
+            (packages_dir / "third_party_packages.txt").write_text(
+                "\n".join(pkgs) + ("\n" if pkgs else ""), encoding="utf-8"
+            )
+            (packages_dir / "playstore_packages.txt").write_text(
+                "\n".join(playstore_pkgs) + ("\n" if playstore_pkgs else ""), encoding="utf-8"
+            )
+            (packages_dir / "sideloaded_packages.txt").write_text(
+                "\n".join(sideloaded_pkgs) + ("\n" if sideloaded_pkgs else ""), encoding="utf-8"
+            )
+            (packages_dir / "package_installers.txt").write_text(
+                "\n".join(installer_lines) + ("\n" if installer_lines else ""), encoding="utf-8"
+            )
+
+            self.log(
+                f"Found {len(pkgs)} 3rd-party app(s): {len(playstore_pkgs)} Play Store app(s) (manifest), "
+                f"{len(sideloaded_pkgs)} Sideloaded app(s) (APK clone)."
+            )
+
+            sideload_set = set(sideloaded_pkgs)
             all_perms_lines = []
             for idx, pkg in enumerate(pkgs, start=1):
                 if self.cancel_requested:
                     break
+                is_sideloaded = pkg in sideload_set
                 frac = 0.15 + (0.45 * (idx / max(1, len(pkgs))))
-                self.set_progress(frac, f"[{idx}/{len(pkgs)}] Backing up {pkg}...")
-                self.log(f"[{idx}/{len(pkgs)}] Processing {pkg}...")
+                self.set_progress(frac, f"[{idx}/{len(pkgs)}] Processing {pkg}...")
 
                 if self.chk_apks.get_active():
-                    pkg_dir = apks_dir / pkg
-                    pkg_dir.mkdir(parents=True, exist_ok=True)
-                    for old_apk in pkg_dir.glob("*.apk"):
-                        old_apk.unlink(missing_ok=True)
+                    if is_sideloaded:
+                        self.log(f"[{idx}/{len(pkgs)}] Cloning sideloaded app: {pkg}...")
+                        pkg_dir = apks_dir / pkg
+                        pkg_dir.mkdir(parents=True, exist_ok=True)
+                        for old_apk in pkg_dir.glob("*.apk"):
+                            old_apk.unlink(missing_ok=True)
 
-                    raw_paths = self.adb_out(target, ["shell", "pm", "path", pkg])
-                    apk_paths = [
-                        line.replace("package:", "").strip()
-                        for line in raw_paths.splitlines()
-                        if line.strip().startswith("package:")
-                    ]
-                    for s_idx, remote_apk in enumerate(apk_paths, start=1):
-                        base_name = os.path.basename(remote_apk)
-                        local_apk = pkg_dir / base_name
-                        if local_apk.exists():
-                            local_apk = pkg_dir / f"{s_idx}_{base_name}"
-                        code, out = self.adb(target, ["pull", remote_apk, str(local_apk)], timeout=300)
-                        if code != 0:
-                            self.log(f"  [WARN] Failed pulling {remote_apk}: {out.strip()}")
-                    self.log(f"  [OK] Pulled {len(apk_paths)} APK file(s) for {pkg}")
+                        raw_paths = self.adb_out(target, ["shell", "pm", "path", pkg])
+                        apk_paths = [
+                            line.replace("package:", "").strip()
+                            for line in raw_paths.splitlines()
+                            if line.strip().startswith("package:")
+                        ]
+                        for s_idx, remote_apk in enumerate(apk_paths, start=1):
+                            base_name = os.path.basename(remote_apk)
+                            local_apk = pkg_dir / base_name
+                            if local_apk.exists():
+                                local_apk = pkg_dir / f"{s_idx}_{base_name}"
+                            code, out = self.adb(target, ["pull", remote_apk, str(local_apk)], timeout=300)
+                            if code != 0:
+                                self.log(f"  [WARN] Failed pulling {remote_apk}: {out.strip()}")
+                        self.log(f"  [OK] Pulled {len(apk_paths)} APK file(s) for sideloaded app {pkg}")
+                    else:
+                        self.log(f"[{idx}/{len(pkgs)}] Recorded Play Store app in manifest: {pkg}")
 
                 if self.chk_perms.get_active():
                     dump_out = self.adb_out(target, ["shell", "dumpsys", "package", pkg], timeout=60)
@@ -807,7 +1005,7 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
                         (perms_dir / f"{pkg}.permissions").write_text("\n".join(sorted_g) + "\n", encoding="utf-8")
                         for perm in sorted_g:
                             all_perms_lines.append(f"{pkg} {perm}")
-                        self.log(f"  [OK] Exported {len(sorted_g)} granted runtime permission(s)")
+                        self.log(f"  [OK] Exported {len(sorted_g)} granted runtime permission(s) for {pkg}")
 
             if self.chk_perms.get_active():
                 (perms_dir / "granted_permissions.txt").write_text(
@@ -834,7 +1032,7 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
                 else:
                     self.log(f"[WARN] Pull /sdcard/{folder}: {out.strip()}")
 
-        # 3. Dump system / secure / global settings
+        # 4. Dump system / secure / global settings
         if not self.cancel_requested and self.chk_settings.get_active():
             self.set_progress(0.85, "Dumping system, secure, and global settings...")
             for ns in ("system", "secure", "global"):
@@ -843,7 +1041,7 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
                 (settings_dir / f"{ns}.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
                 self.log(f"[OK] Saved {len(lines)} '{ns}' settings")
 
-        # 4. Disabled packages list
+        # 5. Disabled packages list
         if not self.cancel_requested and self.chk_debloat.get_active():
             self.set_progress(0.95, "Saving disabled packages list...")
             raw_dis = self.adb_out(target, ["shell", "pm", "list", "packages", "-d"])
@@ -902,33 +1100,111 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
                 else:
                     self.log(f"[INFO] {local_src} is empty or not present; skipping.")
 
-        # 2. Batch install APKs via install-multiple -r -g
-        if not self.cancel_requested and self.chk_apks.get_active() and apks_dir.exists():
-            pkg_dirs = sorted([d for d in apks_dir.iterdir() if d.is_dir()])
-            installed_ok = 0
-            for idx, pkg_dir in enumerate(pkg_dirs, start=1):
+        # 2. Restore Sideloaded APKs via ADB & Install Play Store Apps Fresh from Google Play (Mode A)
+        if not self.cancel_requested and self.chk_apks.get_active():
+            playstore_pkgs, sideloaded_pkgs = self.load_package_lists_for_restore(bdir)
+            self.log(
+                f"Manifest Summary: {len(sideloaded_pkgs)} Sideloaded app(s) to clone via ADB, "
+                f"{len(playstore_pkgs)} Play Store app(s) to verify/install via Google Play."
+            )
+
+            # 2A. Clone Sideloaded Apps via install-multiple -r -g
+            sideload_installed = 0
+            sideload_attempted = 0
+            for idx, pkg_name in enumerate(sideloaded_pkgs, start=1):
                 if self.cancel_requested:
                     break
+                pkg_dir = apks_dir / pkg_name
+                if not pkg_dir.exists():
+                    self.log(f"  [WARN] Sideloaded APK folder missing for {pkg_name}, skipping.")
+                    continue
                 apk_files = sorted([str(f) for f in pkg_dir.glob("*.apk")])
                 if not apk_files:
                     continue
-                frac = 0.15 + (0.45 * (idx / max(1, len(pkg_dirs))))
-                self.set_progress(frac, f"[{idx}/{len(pkg_dirs)}] Installing {pkg_dir.name}...")
-                self.log(f"[{idx}/{len(pkg_dirs)}] Installing {pkg_dir.name} ({len(apk_files)} APK(s))...")
+
+                sideload_attempted += 1
+                frac = 0.15 + (0.20 * (idx / max(1, len(sideloaded_pkgs))))
+                self.set_progress(frac, f"[Sideload {idx}/{len(sideloaded_pkgs)}] Installing {pkg_name}...")
+                self.log(f"[Sideload {idx}/{len(sideloaded_pkgs)}] Cloning {pkg_name} ({len(apk_files)} APK(s))...")
 
                 code, out = self.adb(target, ["install-multiple", "-r", "-g"] + apk_files, timeout=300)
                 if code == 0:
-                    installed_ok += 1
-                    self.log(f"  [OK] Installed {pkg_dir.name}")
+                    sideload_installed += 1
+                    self.log(f"  [OK] Cloned sideloaded app: {pkg_name}")
                 else:
-                    self.log(f"  [WARN] Retrying {pkg_dir.name} without -g...")
+                    self.log(f"  [WARN] Retrying {pkg_name} without -g...")
                     code2, out2 = self.adb(target, ["install-multiple", "-r"] + apk_files, timeout=300)
                     if code2 == 0:
-                        installed_ok += 1
-                        self.log(f"  [OK] Installed {pkg_dir.name} (without -g)")
+                        sideload_installed += 1
+                        self.log(f"  [OK] Cloned sideloaded app: {pkg_name} (without -g)")
                     else:
-                        self.log(f"  [ERROR] Failed to install {pkg_dir.name}: {out2.strip()}")
-            self.log(f"[OK] Batch APK install finished: {installed_ok}/{len(pkg_dirs)} succeeded.")
+                        self.log(f"  [ERROR] Failed to clone sideloaded app {pkg_name}: {out2.strip()}")
+            self.log(f"[OK] Sideloaded APK cloning finished: {sideload_installed}/{sideload_attempted} succeeded.")
+
+            # 2B. Play Store Manifest Queue (Mode A: Fresh Install from Target TV's Google Play Store)
+            if not self.cancel_requested and playstore_pkgs:
+                currently_installed = self.get_installed_packages_on_device(target)
+                missing_play_pkgs = []
+                already_installed_play = 0
+
+                if PROJECTIVY_PKG in playstore_pkgs and PROJECTIVY_PKG not in currently_installed:
+                    missing_play_pkgs.append(PROJECTIVY_PKG)
+
+                for pkg in playstore_pkgs:
+                    if pkg in currently_installed:
+                        already_installed_play += 1
+                    elif pkg != PROJECTIVY_PKG:
+                        missing_play_pkgs.append(pkg)
+
+                self.log("==========================================================")
+                self.log(
+                    f"PLAY STORE MANIFEST CHECK: {already_installed_play} already installed, "
+                    f"{len(missing_play_pkgs)} to install from Google Play."
+                )
+                self.log("==========================================================")
+
+                if missing_play_pkgs:
+                    play_installed_count = 0
+                    i = 0
+                    while i < len(missing_play_pkgs):
+                        if self.cancel_requested:
+                            break
+                        pkg = missing_play_pkgs[i]
+                        currently_installed = self.get_installed_packages_on_device(target)
+                        if pkg in currently_installed:
+                            play_installed_count += 1
+                            self.log(f"[Play Store {i+1}/{len(missing_play_pkgs)}] {pkg} is now installed!")
+                            i += 1
+                            continue
+
+                        frac = 0.35 + (0.25 * ((i + 1) / max(1, len(missing_play_pkgs))))
+                        self.set_progress(
+                            frac, f"[Play Store {i+1}/{len(missing_play_pkgs)}] Opening {pkg} on TV Play Store..."
+                        )
+                        self.log(
+                            f"[Play Store {i+1}/{len(missing_play_pkgs)}] Opening Google Play Store on TV for: {pkg}"
+                        )
+                        self.open_playstore_for_package(target, pkg)
+
+                        choice = self.ask_playstore_dialog_sync(pkg, i + 1, len(missing_play_pkgs))
+                        if choice == "reopen":
+                            continue
+                        elif choice == "skip_all":
+                            self.log("[INFO] Skipping remaining Play Store manifest apps at user request.")
+                            break
+
+                        currently_installed = self.get_installed_packages_on_device(target)
+                        if pkg in currently_installed:
+                            play_installed_count += 1
+                            self.log(f"  [OK] Confirmed installed: {pkg}")
+                        else:
+                            self.log(f"  [INFO] Queued/proceeding to next app: {pkg}")
+                        i += 1
+
+                    self.log(
+                        f"[OK] Play Store manifest queue finished ({play_installed_count} confirmed installed immediately; "
+                        f"background downloads may continue on TV)."
+                    )
 
         # 3. Re-grant runtime permissions
         if not self.cancel_requested and self.chk_perms.get_active():
@@ -936,11 +1212,12 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
             perm_file = perms_dir / "granted_permissions.txt"
             granted_cnt = 0
             if perm_file.exists():
+                installed_now = self.get_installed_packages_on_device(target)
                 for line in perm_file.read_text(encoding="utf-8", errors="ignore").splitlines():
                     if self.cancel_requested:
                         break
                     parts = line.strip().split()
-                    if len(parts) == 2:
+                    if len(parts) == 2 and parts[0] in installed_now:
                         pkg, perm = parts
                         code, _ = self.adb(target, ["shell", "pm", "grant", pkg, perm], timeout=15)
                         if code == 0:
@@ -990,10 +1267,7 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
                     if line.strip():
                         to_disable.add(line.strip())
 
-            installed_raw = self.adb_out(target, ["shell", "pm", "list", "packages"])
-            installed_set = {
-                l.replace("package:", "").strip() for l in installed_raw.splitlines() if l.strip()
-            }
+            installed_set = self.get_installed_packages_on_device(target)
 
             if PROJECTIVY_PKG in installed_set:
                 self.adb(
@@ -1005,6 +1279,11 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
             for pkg in sorted(to_disable):
                 if pkg not in installed_set:
                     continue
+                if pkg in (STOCK_LAUNCHER, "com.google.android.tvlauncher") and PROJECTIVY_PKG not in installed_set:
+                    self.log(
+                        f"  [WARN] Projectivy is not installed yet; keeping stock launcher enabled ({pkg}) so TV has a home screen."
+                    )
+                    continue
                 code, _ = self.adb(target, ["shell", "pm", "disable-user", "--user", "0", pkg], timeout=20)
                 if code == 0:
                     disabled_cnt += 1
@@ -1012,7 +1291,7 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
                 else:
                     self.log(f"  [WARN] Could not disable {pkg}")
 
-            if SETUP_WRAITH in installed_set:
+            if SETUP_WRAITH in installed_set and PROJECTIVY_PKG in installed_set:
                 self.adb(target, ["shell", "pm", "disable-user", "--user", "0", SETUP_WRAITH], timeout=20)
 
             self.log("Triggering HOME intent to launch Projectivy...")
