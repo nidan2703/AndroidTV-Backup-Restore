@@ -18,6 +18,20 @@ To avoid mixing Windows and Linux files, the repository is cleanly split into se
 
 ---
 
+## ⚠️ Important: Target TV Preparation Before Running a Restore
+
+When setting up a brand-new or factory-reset Android TV / Google TV device (such as an NVIDIA Shield TV or Google TV Streamer), **always complete the initial on-screen device setup first** before running the Restore tool:
+
+1. **Complete Initial Android / Google TV Setup**: Sign in with your Google account and finish the initial system walkthrough.
+2. **Install Suggested Apps When Prompted**: When Android TV / Google TV prompts you during initial setup to select or restore desired apps from your Google account, **check and allow it to install all desired apps** (do *not* skip/ignore that prompt). Letting Google Play batch-install your common streaming apps during setup ensures it automatically downloads the exact native builds for that specific device's Android OS version and CPU architecture, and speeds up the restore process significantly.
+3. **Install & Open Projectivy Launcher Once *(Recommended)***: If you use **Projectivy Launcher**, either install it from the Play Store during setup (or let our Restore tool open its Play Store page first) and open it once so Android initializes its external data directory.
+4. **Enable Developer Options & USB / Network Debugging**:
+   - Go to **Settings -> System -> About** and click **Android TV OS build** 7 times until *"You are now a developer!"* appears.
+   - Go to **Settings -> System -> Developer options** and turn ON **USB debugging** / **Network debugging** (Wireless debugging).
+5. **Run the Restore Tool**: Now click **Restore to Target TV** in our app to clone all your sideloaded apps, queue any remaining Play Store apps from your manifest, restore runtime permissions, system/secure/global settings, wallpapers/downloads, disable the stock launcher/bloatware, and automatically import your Projectivy layout, categories, and button color schemes!
+
+---
+
 ## Smart App Handling: Play Store Manifest (Mode A) + Sideloaded APK Cloning
 
 When cloning between different Android TV / Google TV boxes (for example, from an **Android 14 Google TV Streamer** to an **Android 11 NVIDIA Shield TV**), sideloading Split APK bundles originally downloaded from Google Play onto a different device can fail with `INSTALL_FAILED_OLDER_SDK` or refuse to open due to CPU architecture (`armeabi-v7a` vs `arm64-v8a`) and Google Play licensing checks.
@@ -26,7 +40,7 @@ To ensure 100% compatibility across any Android TV or Google TV box:
 
 1. **Play Store Apps (`installer=com.android.vending`) -> Fresh Play Store Install via Manifest (`packages/playstore_packages.txt`)**
    - During **Backup**, the tool inspects every package's installer origin (`pm list packages -3 -i`). Apps installed from the Google Play Store are saved to the Play Store manifest (`packages/playstore_packages.txt`) without wasting time pulling device-locked Split APKs.
-   - During **Restore**, the tool checks which Play Store apps from your manifest are not yet installed on the Target TV (starting with **Projectivy Launcher** first) and automatically opens each missing app's page directly on the Target TV's **Google Play Store** (`market://details?id=<pkg>`) so the TV downloads the exact native build for its Android SDK and CPU.
+   - During **Restore**, the tool checks which Play Store apps from your manifest are not yet installed on the Target TV (skipping all apps you already installed during the initial Google/Android TV setup prompt, and putting **Projectivy Launcher** first if missing) and automatically opens each remaining app's page directly on the Target TV's **Google Play Store** (`market://details?id=<pkg>`) so the TV downloads the exact native build for its Android SDK and CPU.
 2. **Sideloaded Apps -> Direct APK & Split APK Cloning (`packages/sideloaded_packages.txt` & `apks/<pkg>/`)**
    - Apps installed outside the Play Store (via Downloader, Aptoide TV, file managers, etc.) have all of their base and split APKs pulled during Backup and automatically cloned onto the Target TV via `adb install-multiple -r -g`.
    - *Backward Compatibility*: If you restore from an older backup folder created before this update, the tool automatically classifies your existing backup into Play Store vs. Sideloaded apps on the fly.
