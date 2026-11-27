@@ -53,6 +53,7 @@ FILTERED_SETTINGS_KEYS = {
 # Known apps strictly distributed via Google Play Store (for legacy backups that lack package_installers.txt)
 KNOWN_PLAYSTORE_PACKAGES = {
     "air.com.vudu.air.DownloaderTablet",
+    "ar.tvplayer.tv",
     "com.amazon.amazonvideo.livingroom",
     "com.angel.tv",
     "com.apple.atve.androidtv.appletv",
@@ -82,12 +83,9 @@ KNOWN_PLAYSTORE_PACKAGES = {
     "com.viki.android",
     "com.wbd.stream",
     "com.zdf.android.mediathek",
-    "de.eye_interactive.atvl.playstore",
-    "de.fcbayern.android",
     "de.swr.avp.ard.tv",
     "dev.vodik7.tvquickactions",
     "org.videolan.vlc",
-    "pl.solidexplorer2",
     "tv.pluto.android",
     "tv.wuaki.apptv",
 }
@@ -520,43 +518,128 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
         else:
             self.backup_info_row.set_subtitle("Folder exists, no backup found yet.")
 
-    def ask_playstore_dialog_sync(self, pkg: str, idx: int, total: int) -> str:
+    def ask_playstore_checklist_dialog_sync(self, missing_pkgs: list[str]) -> list[str]:
         """
-        Shows a blocking modal Adw.MessageDialog from a worker thread and returns:
-        'next', 'reopen', or 'skip_all'
+        Shows ONE modal checklist window listing all missing Play Store apps with checkboxes,
+        Select All / Select None buttons, and a Yes / No download prompt at the bottom.
+        Returns the list of checked package names if 'Yes' is clicked, or [] if 'No' is clicked.
         """
         event = threading.Event()
-        result_holder = {"choice": "next"}
+        result_holder: dict[str, list[str]] = {"selected": []}
 
         def _present():
-            dialog = Adw.MessageDialog(
+            win = Gtk.Window(
                 transient_for=self,
-                heading=f"Install from Google Play on TV ({idx}/{total})",
-                body=(
-                    f"Package: {pkg}\n\n"
-                    f"The Google Play Store page for this app is now open on your TV screen.\n"
-                    f"1. Press 'Install' on your TV remote.\n"
-                    f"2. Click 'Next App' below (you don't need to wait for the download to complete once it queues)."
-                ),
+                modal=True,
+                title="Google Play Store Download Checklist",
+                default_width=640,
+                default_height=560,
             )
-            dialog.add_response("skip_all", "Skip Remaining")
-            dialog.add_response("reopen", "Re-open on TV")
-            dialog.add_response("next", "Next App")
-            dialog.set_response_appearance("next", Adw.ResponseAppearance.SUGGESTED)
-            dialog.set_default_response("next")
-            dialog.set_close_response("next")
 
-            def _on_resp(_dlg, resp):
-                result_holder["choice"] = resp if resp in ("next", "reopen", "skip_all") else "next"
-                event.set()
+            vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            vbox.set_margin_top(16)
+            vbox.set_margin_bottom(16)
+            vbox.set_margin_start(16)
+            vbox.set_margin_end(16)
+            win.set_child(vbox)
 
-            dialog.connect("response", _on_resp)
-            dialog.present()
+            hdr_lbl = Gtk.Label(
+                label=f"{len(missing_pkgs)} Google Play Store App(s) Not Yet Installed on Target TV",
+                xalign=0.0,
+            )
+            hdr_lbl.add_css_class("title-4")
+            vbox.append(hdr_lbl)
+
+            sub_lbl = Gtk.Label(
+                label=(
+                    "Check the apps you want to install on the Target TV. When you click 'Yes', each checked app "
+                    "will be queued in the Target TV's Google Play Store (with automatic Install button trigger "
+                    "and local APK backup fallback if an app isn't available in your Play Store region)."
+                ),
+                xalign=0.0,
+                wrap=True,
+            )
+            sub_lbl.add_css_class("dim-label")
+            vbox.append(sub_lbl)
+
+            # Select All / Select None bar
+            sel_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            btn_all = Gtk.Button(label="Select All")
+            btn_none = Gtk.Button(label="Select None")
+            sel_bar.append(btn_all)
+            sel_bar.append(btn_none)
+            vbox.append(sel_bar)
+
+            # Scrollable checklist of apps
+            frame = Gtk.Frame()
+            vbox.append(frame)
+
+            scrolled = Gtk.ScrolledWindow()
+            scrolled.set_vexpand(True)
+            scrolled.set_min_content_height(300)
+            frame.set_child(scrolled)
+
+            list_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            list_box.set_margin_top(8)
+            list_box.set_margin_bottom(8)
+            list_box.set_margin_start(10)
+            list_box.set_margin_end(10)
+            scrolled.set_child(list_box)
+
+            check_buttons: list[tuple[str, Gtk.CheckButton]] = []
+            for idx, pkg in enumerate(missing_pkgs, start=1):
+                friendly = get_friendly_app_name(pkg)
+                chk = Gtk.CheckButton(label=f"{idx:2d}. {friendly}  ({pkg})")
+                chk.set_active(True)
+                list_box.append(chk)
+                check_buttons.append((pkg, chk))
+
+            btn_all.connect("clicked", lambda _: [c.set_active(True) for _, c in check_buttons])
+            btn_none.connect("clicked", lambda _: [c.set_active(False) for _, c in check_buttons])
+
+            # Bottom question & Yes / No buttons
+            q_lbl = Gtk.Label(
+                label="Download and install the checked apps on the Target TV now?",
+                xalign=0.5,
+            )
+            q_lbl.add_css_class("heading")
+            vbox.append(q_lbl)
+
+            btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            btn_box.set_halign(Gtk.Align.CENTER)
+            vbox.append(btn_box)
+
+            btn_no = Gtk.Button(label="No, Skip Play Store Apps")
+            btn_no.add_css_class("pill")
+            btn_yes = Gtk.Button(label="Yes, Download Checked Apps")
+            btn_yes.add_css_class("suggested-action")
+            btn_yes.add_css_class("pill")
+
+            btn_box.append(btn_no)
+            btn_box.append(btn_yes)
+
+            completed = {"done": False}
+
+            def _finish(selected_list: list[str]):
+                if not completed["done"]:
+                    completed["done"] = True
+                    result_holder["selected"] = selected_list
+                    win.destroy()
+                    event.set()
+
+            btn_no.connect("clicked", lambda _: _finish([]))
+            btn_yes.connect(
+                "clicked",
+                lambda _: _finish([p for p, c in check_buttons if c.get_active()]),
+            )
+            win.connect("close-request", lambda _: _finish([]) or False)
+
+            win.present()
             return False
 
         GLib.idle_add(_present)
         event.wait()
-        return result_holder["choice"]
+        return result_holder["selected"]
 
     # --------------------------------------------------------------------------
     # Button Callbacks
@@ -1352,53 +1435,94 @@ class StreamerBackupWindow(Adw.ApplicationWindow):
                 self.log("==========================================================")
 
                 if missing_play_pkgs:
-                    play_installed_count = 0
-                    i = 0
-                    while i < len(missing_play_pkgs):
-                        if self.cancel_requested:
-                            break
-                        pkg = missing_play_pkgs[i]
-                        friendly = get_friendly_app_name(pkg)
-                        currently_installed = self.get_installed_packages_on_device(target)
-                        if pkg in currently_installed:
-                            play_installed_count += 1
-                            restore_status_notes[pkg] = "INSTALLED FROM GOOGLE PLAY ON DEVICE B"
-                            self.log(f"[Play Store {i+1}/{len(missing_play_pkgs)}] {friendly} ({pkg}) is now installed!")
-                            i += 1
-                            continue
+                    selected_play_pkgs = self.ask_playstore_checklist_dialog_sync(missing_play_pkgs)
+                    selected_set = set(selected_play_pkgs)
+                    for pkg in missing_play_pkgs:
+                        if pkg not in selected_set:
+                            restore_status_notes[pkg] = "UNCHECKED / SKIPPED BY USER IN PLAY STORE CHECKLIST"
 
-                        frac = 0.35 + (0.25 * ((i + 1) / max(1, len(missing_play_pkgs))))
-                        self.set_progress(
-                            frac, f"[Play Store {i+1}/{len(missing_play_pkgs)}] Opening {friendly} on TV Play Store..."
-                        )
+                    if not selected_play_pkgs:
+                        self.log("[INFO] User chose not to download missing Play Store apps.")
+                    else:
+                        self.log(f"[INFO] User selected {len(selected_play_pkgs)}/{len(missing_play_pkgs)} Play Store app(s) to download.")
+                        play_installed_count = 0
+
+                        for i, pkg in enumerate(selected_play_pkgs, start=1):
+                            if self.cancel_requested:
+                                break
+                            friendly = get_friendly_app_name(pkg)
+                            currently_installed = self.get_installed_packages_on_device(target)
+                            if pkg in currently_installed:
+                                play_installed_count += 1
+                                restore_status_notes[pkg] = "INSTALLED FROM GOOGLE PLAY ON DEVICE B"
+                                self.log(f"[Play Store {i}/{len(selected_play_pkgs)}] {friendly} ({pkg}) is already installed!")
+                                continue
+
+                            frac = 0.35 + (0.20 * (i / max(1, len(selected_play_pkgs))))
+                            self.set_progress(
+                                frac, f"[Play Store {i}/{len(selected_play_pkgs)}] Queuing {friendly} on TV Play Store..."
+                            )
+                            self.log(
+                                f"[Play Store {i}/{len(selected_play_pkgs)}] Opening Google Play Store on TV for: {friendly} ({pkg})"
+                            )
+                            self.open_playstore_for_package(target, pkg)
+
+                            # Wait 3.5s for Play Store details page to load, then auto-press focused 'Install' button
+                            threading.Event().wait(3.5)
+                            self.adb(target, ["shell", "input", "keyevent", "KEYCODE_DPAD_CENTER"], timeout=10)
+
+                            # Poll up to 8 seconds to see if small app installs immediately or queues in background
+                            installed_now = False
+                            for _ in range(4):
+                                if self.cancel_requested:
+                                    break
+                                threading.Event().wait(2.0)
+                                if pkg in self.get_installed_packages_on_device(target):
+                                    installed_now = True
+                                    break
+
+                            if installed_now:
+                                play_installed_count += 1
+                                restore_status_notes[pkg] = "INSTALLED FROM GOOGLE PLAY ON DEVICE B"
+                                self.log(f"  [OK] Confirmed installed: {friendly} ({pkg})")
+                            else:
+                                restore_status_notes[pkg] = "QUEUED IN GOOGLE PLAY ON DEVICE B"
+                                self.log(f"  [INFO] Triggered Install in Google Play queue: {friendly} ({pkg})")
+
+                        # Automatic Local APK Backup Fallback for any checked app that Play Store could not install
+                        still_missing = [
+                            p for p in selected_play_pkgs if p not in self.get_installed_packages_on_device(target)
+                        ]
+                        if still_missing and not self.cancel_requested and apks_dir.exists():
+                            self.log("==========================================================")
+                            self.log(
+                                f"Checking local APK backup fallback for {len(still_missing)} app(s) not yet completed by Play Store..."
+                            )
+                            self.log("==========================================================")
+                            for pkg in still_missing:
+                                if self.cancel_requested:
+                                    break
+                                pkg_dir = apks_dir / pkg
+                                apk_files = sorted([str(f) for f in pkg_dir.glob("*.apk")]) if pkg_dir.exists() else []
+                                if not apk_files:
+                                    continue
+                                friendly = get_friendly_app_name(pkg)
+                                self.log(f"  [Fallback ADB Install] Installing {friendly} ({pkg}) from local backup APKs...")
+                                code, out = self.adb(target, ["install-multiple", "-r", "-g"] + apk_files, timeout=300)
+                                if code != 0:
+                                    code, out = self.adb(target, ["install-multiple", "-r"] + apk_files, timeout=300)
+                                if code == 0:
+                                    play_installed_count += 1
+                                    restore_status_notes[pkg] = "INSTALLED VIA LOCAL APK BACKUP FALLBACK"
+                                    self.log(f"  [OK] Installed {friendly} ({pkg}) from local APK backup!")
+                                else:
+                                    self.log(
+                                        f"  [INFO] {friendly} ({pkg}) requires Play Store download ({out.strip()[:80]})"
+                                    )
+
                         self.log(
-                            f"[Play Store {i+1}/{len(missing_play_pkgs)}] Opening Google Play Store on TV for: {friendly} ({pkg})"
+                            f"[OK] Play Store manifest install finished ({play_installed_count}/{len(selected_play_pkgs)} confirmed installed)."
                         )
-                        self.open_playstore_for_package(target, pkg)
-
-                        choice = self.ask_playstore_dialog_sync(f"{friendly} ({pkg})", i + 1, len(missing_play_pkgs))
-                        if choice == "reopen":
-                            continue
-                        elif choice == "skip_all":
-                            for rem_pkg in missing_play_pkgs[i:]:
-                                restore_status_notes.setdefault(rem_pkg, "SKIPPED BY USER DURING PLAY STORE QUEUE")
-                            self.log("[INFO] Skipping remaining Play Store manifest apps at user request.")
-                            break
-
-                        currently_installed = self.get_installed_packages_on_device(target)
-                        if pkg in currently_installed:
-                            play_installed_count += 1
-                            restore_status_notes[pkg] = "INSTALLED FROM GOOGLE PLAY ON DEVICE B"
-                            self.log(f"  [OK] Confirmed installed: {friendly} ({pkg})")
-                        else:
-                            restore_status_notes[pkg] = "QUEUED IN GOOGLE PLAY ON DEVICE B (Verify download on TV)"
-                            self.log(f"  [INFO] Queued/proceeding to next app: {friendly} ({pkg})")
-                        i += 1
-
-                    self.log(
-                        f"[OK] Play Store manifest queue finished ({play_installed_count} confirmed installed immediately; "
-                        f"background downloads may continue on TV)."
-                    )
 
         # 3. Re-grant runtime permissions
         if not self.cancel_requested and self.chk_perms.get_active():

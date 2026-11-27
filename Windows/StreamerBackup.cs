@@ -50,6 +50,7 @@ namespace StreamerBackup
         private static readonly HashSet<string> KnownPlayStorePackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "air.com.vudu.air.DownloaderTablet",
+            "ar.tvplayer.tv",
             "com.amazon.amazonvideo.livingroom",
             "com.angel.tv",
             "com.apple.atve.androidtv.appletv",
@@ -79,12 +80,9 @@ namespace StreamerBackup
             "com.viki.android",
             "com.wbd.stream",
             "com.zdf.android.mediathek",
-            "de.eye_interactive.atvl.playstore",
-            "de.fcbayern.android",
             "de.swr.avp.ard.tv",
             "dev.vodik7.tvquickactions",
             "org.videolan.vlc",
-            "pl.solidexplorer2",
             "tv.pluto.android",
             "tv.wuaki.apptv"
         };
@@ -782,6 +780,128 @@ namespace StreamerBackup
                 }));
             }
             return MessageBox.Show(this, text, caption, buttons, icon);
+        }
+
+        private List<string> ShowPlayStoreChecklistDialogOnUi(List<string> missingPkgs)
+        {
+            if (this.InvokeRequired)
+            {
+                return (List<string>)this.Invoke(new Func<List<string>>(delegate
+                {
+                    return ShowPlayStoreChecklistDialogOnUi(missingPkgs);
+                }));
+            }
+
+            List<string> selected = new List<string>();
+            using (Form dlg = new Form())
+            {
+                dlg.Text = "Google Play Store Download Checklist";
+                dlg.Size = new Size(640, 560);
+                dlg.MinimumSize = new Size(560, 460);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.BackColor = bgMain;
+                dlg.ForeColor = fgText;
+                dlg.Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
+                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dlg.MaximizeBox = false;
+                dlg.MinimizeBox = false;
+
+                try
+                {
+                    int useDark = 1;
+                    DwmSetWindowAttribute(dlg.Handle, 20, ref useDark, sizeof(int));
+                }
+                catch { }
+
+                Label lblTitle = new Label();
+                lblTitle.Text = string.Format("{0} Google Play Store App(s) Not Yet Installed on Target TV", missingPkgs.Count);
+                lblTitle.Font = new Font("Segoe UI", 11.5f, FontStyle.Bold);
+                lblTitle.ForeColor = fgText;
+                lblTitle.AutoSize = true;
+                lblTitle.Location = new Point(16, 14);
+                dlg.Controls.Add(lblTitle);
+
+                Label lblDesc = new Label();
+                lblDesc.Text = "Check the apps you want to install on the Target TV. Clicking 'Yes' will open each checked app on the TV's Google Play Store, trigger Install, and fall back to local APK backup if needed.";
+                lblDesc.Font = new Font("Segoe UI", 9f, FontStyle.Regular);
+                lblDesc.ForeColor = fgMuted;
+                lblDesc.Location = new Point(16, 40);
+                lblDesc.Size = new Size(590, 36);
+                dlg.Controls.Add(lblDesc);
+
+                Button btnAll = CreateFlatButton("Select All", btnNeutral, 95, 27);
+                btnAll.Location = new Point(16, 80);
+                dlg.Controls.Add(btnAll);
+
+                Button btnNone = CreateFlatButton("Select None", btnNeutral, 100, 27);
+                btnNone.Location = new Point(118, 80);
+                dlg.Controls.Add(btnNone);
+
+                CheckedListBox clb = new CheckedListBox();
+                clb.CheckOnClick = true;
+                clb.BackColor = bgCard;
+                clb.ForeColor = fgText;
+                clb.BorderStyle = BorderStyle.FixedSingle;
+                clb.Font = new Font("Consolas", 9.5f, FontStyle.Regular);
+                clb.Location = new Point(16, 114);
+                clb.Size = new Size(592, 315);
+
+                for (int i = 0; i < missingPkgs.Count; i++)
+                {
+                    string pkg = missingPkgs[i];
+                    string itemText = string.Format("{0,2}. {1,-34} ({2})", i + 1, GetFriendlyAppName(pkg), pkg);
+                    clb.Items.Add(itemText, true);
+                }
+                dlg.Controls.Add(clb);
+
+                btnAll.Click += delegate
+                {
+                    for (int i = 0; i < clb.Items.Count; i++) clb.SetItemChecked(i, true);
+                };
+                btnNone.Click += delegate
+                {
+                    for (int i = 0; i < clb.Items.Count; i++) clb.SetItemChecked(i, false);
+                };
+
+                Label lblQuestion = new Label();
+                lblQuestion.Text = "Download and install the checked apps on the Target TV now?";
+                lblQuestion.Font = new Font("Segoe UI", 10.5f, FontStyle.Bold);
+                lblQuestion.ForeColor = fgText;
+                lblQuestion.AutoSize = true;
+                lblQuestion.Location = new Point(105, 440);
+                dlg.Controls.Add(lblQuestion);
+
+                Button btnYes = CreateFlatButton("Yes, Download Checked Apps", accentBlue, 220, 36);
+                btnYes.Font = new Font("Segoe UI", 9.5f, FontStyle.Bold);
+                btnYes.Location = new Point(110, 472);
+                btnYes.Click += delegate
+                {
+                    for (int i = 0; i < clb.Items.Count; i++)
+                    {
+                        if (clb.GetItemChecked(i))
+                            selected.Add(missingPkgs[i]);
+                    }
+                    dlg.DialogResult = DialogResult.Yes;
+                    dlg.Close();
+                };
+                dlg.Controls.Add(btnYes);
+
+                Button btnNo = CreateFlatButton("No, Skip Play Store Apps", btnNeutral, 195, 36);
+                btnNo.Font = new Font("Segoe UI", 9.5f, FontStyle.Bold);
+                btnNo.Location = new Point(342, 472);
+                btnNo.Click += delegate
+                {
+                    selected.Clear();
+                    dlg.DialogResult = DialogResult.No;
+                    dlg.Close();
+                };
+                dlg.Controls.Add(btnNo);
+
+                dlg.AcceptButton = btnYes;
+                dlg.CancelButton = btnNo;
+                dlg.ShowDialog(this);
+            }
+            return selected;
         }
 
         // ----------------------------------------------------------------------
@@ -1847,81 +1967,132 @@ namespace StreamerBackup
 
                     if (missingPlayPkgs.Count > 0)
                     {
-                        int playInstalledCount = 0;
-                        bool skipRemainingPlayStore = false;
-
-                        for (int i = 0; i < missingPlayPkgs.Count; i++)
+                        List<string> selectedPlayPkgs = ShowPlayStoreChecklistDialogOnUi(missingPlayPkgs);
+                        HashSet<string> selectedSet = new HashSet<string>(selectedPlayPkgs, StringComparer.Ordinal);
+                        foreach (string pkg in missingPlayPkgs)
                         {
-                            if (cancelRequested || skipRemainingPlayStore) break;
-                            string pkg = missingPlayPkgs[i];
-                            string friendly = GetFriendlyAppName(pkg);
-
-                            // Re-check in case a previous Play Store background download finished
-                            currentlyInstalled = GetInstalledPackagesOnDevice(target);
-                            if (currentlyInstalled.Contains(pkg))
-                            {
-                                playInstalledCount++;
-                                restoreStatusNotes[pkg] = "INSTALLED FROM GOOGLE PLAY ON DEVICE B";
-                                AppendLog(string.Format("[Play Store {0}/{1}] {2} ({3}) is now installed!", i + 1, missingPlayPkgs.Count, friendly, pkg));
-                                continue;
-                            }
-
-                            int pct = 35 + (int)(25.0 * (i + 1) / Math.Max(1, missingPlayPkgs.Count));
-                            SetProgress(pct, string.Format("[Play Store {0}/{1}] Opening {2} on TV Play Store...", i + 1, missingPlayPkgs.Count, friendly));
-                            AppendLog(string.Format("[Play Store {0}/{1}] Opening Google Play Store on TV for: {2} ({3})", i + 1, missingPlayPkgs.Count, friendly, pkg));
-
-                            OpenPlayStoreForPackage(target, pkg);
-
-                            // Poll automatically in the background while prompt or user installs on TV
-                            DialogResult dr = ShowMessageBoxOnUi(
-                                string.Format("Play Store App [{0} of {1}]:\n\n" +
-                                    "App: {2}\n" +
-                                    "Package: {3}\n\n" +
-                                    "The Google Play Store page for this app is now open on your TV screen.\n" +
-                                    "1. Press 'Install' on your TV remote.\n" +
-                                    "2. Click 'YES' below to move to the next Play Store app (you don't need to wait for the download to finish once it starts queuing).\n\n" +
-                                    "- Click 'YES' -> Next Play Store App\n" +
-                                    "- Click 'NO' -> Re-open this app's Play Store page on TV\n" +
-                                    "- Click 'CANCEL' -> Skip remaining Play Store apps and continue restore",
-                                    i + 1, missingPlayPkgs.Count, friendly, pkg),
-                                string.Format("Install from Google Play on TV ({0}/{1})", i + 1, missingPlayPkgs.Count),
-                                MessageBoxButtons.YesNoCancel,
-                                MessageBoxIcon.Information);
-
-                            if (dr == DialogResult.No)
-                            {
-                                // Re-open the same package
-                                i--;
-                                continue;
-                            }
-                            else if (dr == DialogResult.Cancel)
-                            {
-                                for (int k = i; k < missingPlayPkgs.Count; k++)
-                                {
-                                    if (!restoreStatusNotes.ContainsKey(missingPlayPkgs[k]))
-                                        restoreStatusNotes[missingPlayPkgs[k]] = "SKIPPED BY USER DURING PLAY STORE QUEUE";
-                                }
-                                AppendLog("[INFO] Skipping remaining Play Store manifest apps at user request.");
-                                skipRemainingPlayStore = true;
-                                break;
-                            }
-
-                            currentlyInstalled = GetInstalledPackagesOnDevice(target);
-                            if (currentlyInstalled.Contains(pkg))
-                            {
-                                playInstalledCount++;
-                                restoreStatusNotes[pkg] = "INSTALLED FROM GOOGLE PLAY ON DEVICE B";
-                                AppendLog("  [OK] Confirmed installed: " + friendly + " (" + pkg + ")");
-                            }
-                            else
-                            {
-                                restoreStatusNotes[pkg] = "QUEUED IN GOOGLE PLAY ON DEVICE B (Verify download on TV)";
-                                AppendLog("  [INFO] Queued/proceeding to next app: " + friendly + " (" + pkg + ")");
-                            }
+                            if (!selectedSet.Contains(pkg))
+                                restoreStatusNotes[pkg] = "UNCHECKED / SKIPPED BY USER IN PLAY STORE CHECKLIST";
                         }
 
-                        AppendLog(string.Format("[OK] Play Store manifest queue finished ({0} confirmed installed immediately; background downloads may continue on TV).",
-                            playInstalledCount));
+                        if (selectedPlayPkgs.Count == 0)
+                        {
+                            AppendLog("[INFO] User chose not to download missing Play Store apps.");
+                        }
+                        else
+                        {
+                            AppendLog(string.Format("[INFO] User selected {0}/{1} Play Store app(s) to download.",
+                                selectedPlayPkgs.Count, missingPlayPkgs.Count));
+                            int playInstalledCount = 0;
+
+                            for (int i = 0; i < selectedPlayPkgs.Count; i++)
+                            {
+                                if (cancelRequested) break;
+                                string pkg = selectedPlayPkgs[i];
+                                string friendly = GetFriendlyAppName(pkg);
+
+                                currentlyInstalled = GetInstalledPackagesOnDevice(target);
+                                if (currentlyInstalled.Contains(pkg))
+                                {
+                                    playInstalledCount++;
+                                    restoreStatusNotes[pkg] = "INSTALLED FROM GOOGLE PLAY ON DEVICE B";
+                                    AppendLog(string.Format("[Play Store {0}/{1}] {2} ({3}) is already installed!",
+                                        i + 1, selectedPlayPkgs.Count, friendly, pkg));
+                                    continue;
+                                }
+
+                                int pct = 35 + (int)(20.0 * (i + 1) / Math.Max(1, selectedPlayPkgs.Count));
+                                SetProgress(pct, string.Format("[Play Store {0}/{1}] Queuing {2} on TV Play Store...",
+                                    i + 1, selectedPlayPkgs.Count, friendly));
+                                AppendLog(string.Format("[Play Store {0}/{1}] Opening Google Play Store on TV for: {2} ({3})",
+                                    i + 1, selectedPlayPkgs.Count, friendly, pkg));
+
+                                OpenPlayStoreForPackage(target, pkg);
+
+                                // Wait 3.5s for Play Store page to load, then auto-press focused 'Install' button
+                                Thread.Sleep(3500);
+                                Adb(target, "shell input keyevent KEYCODE_DPAD_CENTER", out outStr, 10000);
+
+                                bool installedNow = false;
+                                for (int poll = 0; poll < 4; poll++)
+                                {
+                                    if (cancelRequested) break;
+                                    Thread.Sleep(2000);
+                                    if (GetInstalledPackagesOnDevice(target).Contains(pkg))
+                                    {
+                                        installedNow = true;
+                                        break;
+                                    }
+                                }
+
+                                if (installedNow)
+                                {
+                                    playInstalledCount++;
+                                    restoreStatusNotes[pkg] = "INSTALLED FROM GOOGLE PLAY ON DEVICE B";
+                                    AppendLog("  [OK] Confirmed installed: " + friendly + " (" + pkg + ")");
+                                }
+                                else
+                                {
+                                    restoreStatusNotes[pkg] = "QUEUED IN GOOGLE PLAY ON DEVICE B";
+                                    AppendLog("  [INFO] Triggered Install in Google Play queue: " + friendly + " (" + pkg + ")");
+                                }
+                            }
+
+                            // Automatic Local APK Backup Fallback for any checked app that Play Store did not finish installing
+                            HashSet<string> afterPlayInstalled = GetInstalledPackagesOnDevice(target);
+                            List<string> stillMissing = new List<string>();
+                            foreach (string p in selectedPlayPkgs)
+                            {
+                                if (!afterPlayInstalled.Contains(p)) stillMissing.Add(p);
+                            }
+
+                            if (stillMissing.Count > 0 && !cancelRequested && Directory.Exists(apksDir))
+                            {
+                                AppendLog("==========================================================");
+                                AppendLog(string.Format("Checking local APK backup fallback for {0} app(s) not yet completed by Play Store...",
+                                    stillMissing.Count));
+                                AppendLog("==========================================================");
+
+                                foreach (string pkg in stillMissing)
+                                {
+                                    if (cancelRequested) break;
+                                    string pkgDir = Path.Combine(apksDir, pkg);
+                                    if (!Directory.Exists(pkgDir)) continue;
+                                    string[] apkFiles = Directory.GetFiles(pkgDir, "*.apk");
+                                    if (apkFiles.Length == 0) continue;
+
+                                    Array.Sort(apkFiles, StringComparer.Ordinal);
+                                    string friendly = GetFriendlyAppName(pkg);
+                                    AppendLog(string.Format("  [Fallback ADB Install] Installing {0} ({1}) from local backup APKs...", friendly, pkg));
+
+                                    StringBuilder quotedApks = new StringBuilder();
+                                    foreach (string apk in apkFiles)
+                                    {
+                                        quotedApks.Append(" \"").Append(apk).Append("\"");
+                                    }
+
+                                    int fCode = Adb(target, "install-multiple -r -g" + quotedApks.ToString(), out outStr, 300000);
+                                    if (fCode != 0)
+                                    {
+                                        fCode = Adb(target, "install-multiple -r" + quotedApks.ToString(), out outStr, 300000);
+                                    }
+
+                                    if (fCode == 0)
+                                    {
+                                        playInstalledCount++;
+                                        restoreStatusNotes[pkg] = "INSTALLED VIA LOCAL APK BACKUP FALLBACK";
+                                        AppendLog("  [OK] Installed " + friendly + " (" + pkg + ") from local APK backup!");
+                                    }
+                                    else
+                                    {
+                                        AppendLog("  [INFO] " + friendly + " (" + pkg + ") requires Play Store download (" + outStr.Trim() + ")");
+                                    }
+                                }
+                            }
+
+                            AppendLog(string.Format("[OK] Play Store manifest install finished ({0}/{1} confirmed installed).",
+                                playInstalledCount, selectedPlayPkgs.Count));
+                        }
                     }
                 }
             }
